@@ -9,8 +9,8 @@
 For six seasons the Clippers shared Crypto.com Arena (formerly Staples Center) with the Lakers.
 In 2024-25 they moved into Intuit Dome, a building designed around a home crowd, including
 the 51-row "Wall" behind one basket. This repo pulls every regular-season NBA game since
-2018-19, validates it with Pydantic, refreshes it daily on a Cloud Run job, and puts a Streamlit
-dashboard on top to answer that one question.
+2018-19, validates it with Pydantic, stores it as Parquet, and puts a Streamlit dashboard on top
+to answer that one question.
 
 ![Dashboard](docs/dashboard.png)
 
@@ -40,8 +40,8 @@ season.
 - **How sure is this?** In 94% of 4,000 bootstrap resamples the change is positive, but the 95%
   interval still crosses zero. Two seasons is 82 home games, so the evidence is strong but not
   yet conclusive. If you drop the bubble season and the limited-fan season (2019-20, 2020-21),
-  the change grows to **+5.1** (96% of resamples positive). The daily job adds 2026-27 games as
-  they're played, so the interval will narrow during the season.
+  the change grows to **+5.1** (96% of resamples positive). Re-running the ingest job during
+  2026-27 adds new games, so the interval will narrow as the season goes on.
 
 *What this doesn't control for:* roster changes between eras (this measures home edge, not
 team strength, but a roster can still be better suited to home or road play), schedule
@@ -51,11 +51,11 @@ rest days.
 ## How it works
 
 ```
-stats.nba.com ──nba_api──▶ Cloud Run Job (daily, Cloud Scheduler)
+stats.nba.com ──nba_api──▶ ingest job (clippers-ingest)
                              │  Pydantic: TeamGameLine → Game
                              │  bad games quarantined + logged
                              ▼
-                        GCS bucket
+                        data/
                           team_games/season=YYYY-YY.parquet
                           exports/team_games.csv  ──▶ Tableau
                           exports/last_run.json   (run report)
@@ -103,28 +103,10 @@ pytest                          # 27 tests
 ```
 
 A snapshot of the data is committed under `data/` so the dashboard works without running the
-ingest step. To read live data from the bucket instead, run
-`DATA_URI=gs://<bucket> GCS_ANON=1 streamlit run dashboard/app.py`.
+ingest step. The live dashboard is hosted on Streamlit Community Cloud and reads that snapshot.
 
-**Tableau:** connect to `data/exports/team_games.csv` (or the copy in the bucket). It has one row
+**Tableau:** connect to `data/exports/team_games.csv`. It has one row
 per team per game, with both teams' box scores and a `location` column of home, away or neutral.
-
-## Deploy to Google Cloud
-
-```bash
-PROJECT_ID=my-project BUCKET=my-project-clippers PUBLIC_BUCKET=1 ./deploy/deploy.sh
-gcloud run jobs execute clippers-ingest --region=us-west1 --wait
-```
-
-[deploy.sh](deploy/deploy.sh) enables the APIs and creates the bucket, the service accounts
-(the job gets write access to the bucket, the scheduler can only invoke the job), an Artifact
-Registry repo, the Cloud Run Job, and a daily Cloud Scheduler trigger. Every step creates the
-resource or updates it if it already exists. stats.nba.com sometimes blocks cloud-provider IP
-ranges. If the job times out, set `NBA_API_PROXY`.
-
-The dashboard deploys to Streamlit Community Cloud straight from this repo (`dashboard/app.py`,
-installed via `requirements.txt`). Set `DATA_URI` and `GCS_ANON=1` as secrets to read the live
-bucket.
 
 ## Layout
 
@@ -133,11 +115,10 @@ src/clippers_home_court/
   source.py     nba_api fetch with retries
   models.py     Pydantic schema (TeamGameLine, Game)
   transform.py  validate + pair rows, quarantine failures
-  storage.py    local dir or gs:// via fsspec
-  job.py        Cloud Run Job entrypoint (clippers-ingest)
+  storage.py    read/write Parquet + CSV exports
+  job.py        ingest entrypoint (clippers-ingest)
   analysis.py   home edge, league context, bootstrap
 dashboard/app.py  Streamlit + Altair
-deploy/deploy.sh  Cloud Run Job + Scheduler
 tests/            schema, pairing, and metric tests
 ```
 

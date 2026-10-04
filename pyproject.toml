@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "clippers-home-court"
 version = "0.1.0"
-description = "Did the move to Intuit Dome change the Clippers' home-court advantage? A validated NBA data pipeline on Cloud Run."
+description = "Did the move to Intuit Dome change the Clippers' home-court advantage? A validated NBA data pipeline and dashboard."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
