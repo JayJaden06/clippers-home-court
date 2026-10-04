@@ -1,5 +1,9 @@
 # clippers-home-court
 
+[![ci](https://github.com/JayJaden06/clippers-home-court/actions/workflows/ci.yml/badge.svg)](https://github.com/JayJaden06/clippers-home-court/actions/workflows/ci.yml)
+
+**[Live dashboard →](https://clippers-home-court-h46at8hpdebg9gdcaunm87.streamlit.app)**
+
 **Did moving into Intuit Dome change the Clippers' home-court advantage?**
 
 For six seasons the Clippers shared Crypto.com Arena (formerly Staples Center) with the Lakers.
