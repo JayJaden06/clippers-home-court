@@ -9,7 +9,7 @@
 For six seasons the Clippers shared Crypto.com Arena (formerly Staples Center) with the Lakers.
 In 2024-25 they moved into Intuit Dome, a building designed around a home crowd, including
 the 51-row "Wall" behind one basket. This repo pulls every regular-season NBA game since
-2018-19, validates it with Pydantic, stores it as Parquet, and puts a Streamlit dashboard on top
+2013-14, validates it with Pydantic, stores it as Parquet, and puts a Streamlit dashboard on top
 to answer that one question.
 
 ![Dashboard](docs/dashboard.png)
@@ -48,10 +48,51 @@ team strength, but a roster can still be better suited to home or road play), sc
 density, and rest. A natural next step is a game-level regression with opponent strength and
 rest days.
 
+### Is it the building? Other teams' arena moves
+
+![Arena moves](docs/arena-moves.png)
+
+Four other teams opened new arenas in the same city during 2013-2026. For each one, I compared
+its home edge (vs. the league average) in the 3 seasons before the move with its first 2
+seasons in the new building, skipping the no-fan 2020-21 season. Subtracting the league average
+each season makes this a difference-in-differences against the rest of the league.
+
+| Move | Change (pts/100) | 95% CI |
+|---|---|---|
+| Kings → Golden 1 Center (2016) | −0.6 | −5.3 to +4.2 |
+| Pistons → Little Caesars Arena (2017) | −0.6 | −5.6 to +4.6 |
+| Bucks → Fiserv Forum (2018) | +1.7 | −3.1 to +6.8 |
+| Warriors → Chase Center (2019) | +1.9 | −3.9 to +7.5 |
+| **Clippers → Intuit Dome (2024)** | **+5.4** | −0.8 to +12.0 |
+
+As a chance baseline, I ran the same before/after calculation for every team at every season
+where nothing happened (223 comparisons). A change of +5.4 or more came up **4%** of the time.
+New arenas don't reliably raise home advantage, so the Clippers' jump stands out. (With the
+same 3-before/2-after window for everyone, the Clippers' change is +5.4 instead of the +4.3
+from the six-season comparison above.)
+
+### Does The Wall make opponents miss free throws?
+
+![The Wall](docs/the-wall.png)
+
+**Not in a way that lasts.** For every arena and season, I compared visitors' free-throw
+shooting there with their own FT% in all their other games. In Intuit Dome's first season,
+visitors shot **3.3 points worse** than usual, the 2nd-toughest arena in the league. The next
+season they shot **2.1 points better** (27th). Across both: **−0.5**, essentially zero. With
+about 870 visitor free throws per arena-season, luck alone moves this number by about ±1.4
+points, so year one looks like noise. An
+[early-season study](https://abovethebreak.substack.com/p/ballmers-wall-is-the-intuit-dome)
+from December 2024 reached a similar conclusion from 12 games.
+
+The sharper test would compare free throws at the Wall end with the other end. The visiting
+team picks which basket it attacks in each half, though, and the public play-by-play data
+doesn't record which end a shot was at, so this measures the whole arena instead.
+
 ## How it works
 
 ```
-stats.nba.com ──nba_api──▶ ingest job (clippers-ingest)
+stats.nba.com ──nba_api──────────▶ ingest job (clippers-ingest)
+basketball-reference.com (≤2017-18) ─┘
                              │  Pydantic: TeamGameLine → Game
                              │  bad games quarantined + logged
                              ▼
@@ -73,7 +114,9 @@ stats.nba.com ──nba_api──▶ ingest job (clippers-ingest)
 
 If either side of a game fails, the whole game is rejected, so storage never holds a game with
 only one side. The job writes nothing for a season if its rejection rate is above a threshold.
-The current load is 19,038 team-game rows and 0 rejections.
+The current load is 31,338 team-game rows (13 seasons, 2013-14 to 2025-26) and 0 rejections.
+Seasons before 2018-19 come from Basketball Reference game logs, converted to the same
+columns and validated by the same models ([bbref.py](src/clippers_home_court/bbref.py)).
 
 The validator caught one real upstream problem: in older seasons the API's team-level
 `PLUS_MINUS` is sometimes fractional or disagrees with the final score (22 games in 2018-19
@@ -99,7 +142,7 @@ pip install -e ".[dashboard,dev]"
 
 clippers-ingest                 # pull/refresh into ./data
 streamlit run dashboard/app.py  # dashboard on http://localhost:8501
-pytest                          # 27 tests
+pytest                          # 33 tests
 ```
 
 A snapshot of the data is committed under `data/` so the dashboard works without running the
@@ -112,15 +155,17 @@ per team per game, with both teams' box scores and a `location` column of home, 
 
 ```
 src/clippers_home_court/
-  source.py     nba_api fetch with retries
+  source.py     nba_api fetch with retries (2018-19 on)
+  bbref.py      Basketball Reference game logs (2013-14 to 2017-18)
   models.py     Pydantic schema (TeamGameLine, Game)
   transform.py  validate + pair rows, quarantine failures
   storage.py    read/write Parquet + CSV exports
   job.py        ingest entrypoint (clippers-ingest)
-  analysis.py   home edge, league context, bootstrap
+  analysis.py   home edge, bootstrap, arena moves, free throws by arena
 dashboard/app.py  Streamlit + Altair
 tests/            schema, pairing, and metric tests
 ```
 
-Data: stats.nba.com via [nba_api](https://github.com/swar/nba_api). Not affiliated with the NBA
-or the LA Clippers.
+Data: stats.nba.com via [nba_api](https://github.com/swar/nba_api) from 2018-19 on, and
+[Basketball Reference](https://www.basketball-reference.com) team game logs for 2013-14 to
+2017-18 (used only for the arena-move comparison). Not affiliated with the NBA or the LA Clippers.

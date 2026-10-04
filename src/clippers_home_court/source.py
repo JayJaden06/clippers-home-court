@@ -9,7 +9,8 @@ import time
 import pandas as pd
 from nba_api.stats.endpoints import leaguegamefinder
 
-from .seasons import season_label
+from . import bbref
+from .seasons import NBA_API_FIRST_SEASON, season_label
 
 log = logging.getLogger(__name__)
 
@@ -17,9 +18,13 @@ log = logging.getLogger(__name__)
 def fetch_season(start_year: int, *, retries: int = 4, timeout: int = 60) -> pd.DataFrame:
     """Every team's box score line for one regular season (two rows per game).
 
+    Seasons before NBA_API_FIRST_SEASON come from Basketball Reference instead.
+
     stats.nba.com is slow and drops requests from some datacenter IP ranges;
     set NBA_API_PROXY to route through a proxy if requests time out.
     """
+    if start_year < NBA_API_FIRST_SEASON:
+        return bbref.fetch_season(start_year)
     proxy = os.environ.get("NBA_API_PROXY") or None
     season = season_label(start_year)
     for attempt in range(1, retries + 1):

@@ -1,51 +1,28 @@
 {
-  "started_at": "2026-10-04T21:53:47.245392+00:00",
+  "started_at": "2026-10-04T23:38:25.436943+00:00",
   "data_uri": "data",
   "seasons": {
-    "2018-19": {
-      "games": 1230,
-      "rejected": [],
-      "neutral_site": 3
-    },
-    "2019-20": {
-      "games": 1059,
-      "rejected": [],
-      "neutral_site": 90
-    },
-    "2020-21": {
-      "games": 1080,
-      "rejected": [],
-      "neutral_site": 0
-    },
-    "2021-22": {
-      "games": 1230,
-      "rejected": [],
-      "neutral_site": 0
-    },
-    "2022-23": {
+    "2015-16": {
       "games": 1230,
       "rejected": [],
       "neutral_site": 2
     },
-    "2023-24": {
+    "2016-17": {
       "games": 1230,
       "rejected": [],
-      "neutral_site": 4
+      "neutral_site": 3
     },
-    "2024-25": {
+    "2017-18": {
       "games": 1230,
       "rejected": [],
-      "neutral_site": 5
+      "neutral_site": 3
     },
-    "2025-26": {
+    "2014-15": {
       "games": 1230,
       "rejected": [],
-      "neutral_site": 5
-    },
-    "2026-27": {
-      "games": 0
+      "neutral_site": 2
     }
   },
-  "finished_at": "2026-10-04T21:53:50.112282+00:00",
-  "total_team_games": 19038
+  "finished_at": "2026-10-04T23:46:53.579476+00:00",
+  "total_team_games": 31338
 }

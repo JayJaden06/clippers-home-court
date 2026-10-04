@@ -90,3 +90,66 @@ def test_bootstrap_is_seeded():
     a = analysis.bootstrap_edge(lac, n=50, seed=1)
     b = analysis.bootstrap_edge(lac, n=50, seed=1)
     assert np.array_equal(a, b)
+
+
+SEASONS = [f"{y}-{(y + 1) % 100:02d}" for y in range(2013, 2026)]
+
+
+def test_move_windows_skips_no_fan_season():
+    pre, post = analysis.move_windows(2019, SEASONS)  # GSW to Chase Center
+    assert pre == ["2016-17", "2017-18", "2018-19"]
+    assert post == ["2019-20", "2021-22"]  # 2020-21 skipped
+    assert analysis.move_windows(2014, SEASONS) is None  # not enough seasons before
+    assert analysis.move_windows(2025, SEASONS) is None  # not enough seasons after
+
+
+def test_placebo_leaves_out_real_moves():
+    teams = ["LAC", "BOS", "GSW"]
+    df = synthetic(SEASONS, teams, {"LAC": 3.0, "BOS": 3.0, "GSW": 3.0})
+    placebo = analysis.placebo_changes(df)
+    # Nothing changes in this league, so every placebo change is zero.
+    assert np.allclose(placebo["delta"], 0)
+    # GSW moved for 2019-20: any window holding seasons from both buildings is left out.
+    gsw = set(placebo.loc[placebo["team"] == "GSW", "split_season"])
+    assert gsw.isdisjoint({"2018-19", "2019-20", "2021-22", "2022-23"})
+    assert "2017-18" in gsw  # 2014-15..2016-17 vs 2017-18..2018-19: all Oracle Arena
+    # 2020-21 is skipped, so it is never used as a fake move season.
+    assert "2020-21" not in set(placebo["split_season"])
+    assert not placebo.duplicated(["team", "split_season"]).any()
+
+
+def test_arena_moves_measures_change():
+    teams = ["LAC", "BOS", "GSW", "MIL"]
+    margins = {s: {"GSW": 8.0 if s >= "2019-20" else 2.0} for s in SEASONS}
+    df = pd.concat(synthetic([s], teams, margins[s]) for s in SEASONS)
+    moves = analysis.arena_moves(df, n=100).set_index("team")
+    assert moves.loc["GSW", "delta"] > 0
+    assert moves.loc["GSW", "after_seasons"] == "2019-20 to 2021-22"
+    # MIL didn't change; it only moves slightly because it plays at GSW.
+    assert abs(moves.loc["MIL", "delta"]) < moves.loc["GSW", "delta"] / 4
+
+
+def test_visitor_free_throws_against_own_baseline():
+    def game(gid, home, away, away_ftm):
+        base = {"season": "2024-25", "game_id": gid, "possessions": 100.0}
+        return [
+            {**base, "team": home, "opponent": away, "location": "home", "ftm": 16, "fta": 20},
+            {
+                **base,
+                "team": away,
+                "opponent": home,
+                "location": "away",
+                "ftm": away_ftm,
+                "fta": 20,
+            },
+        ]
+
+    rows = (
+        game("1", "LAC", "BOS", 10)  # BOS shoots 50% at LAC...
+        + game("2", "MIA", "BOS", 16)  # ...and 80% elsewhere
+        + game("3", "BOS", "MIA", 16)
+        + game("4", "BOS", "LAC", 16)
+    )
+    ft = analysis.visitor_free_throws(pd.DataFrame(rows)).set_index("arena_team")
+    assert ft.loc["LAC", "diff"] == pytest.approx(-30.0)  # 10 made vs. 16 expected, of 20
+    assert ft.loc["LAC", "rank"] == 1
