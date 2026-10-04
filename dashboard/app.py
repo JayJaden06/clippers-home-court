@@ -7,14 +7,20 @@ DATA_URI=gs://my-bucket GCS_ANON=1 streamlit run dashboard/app.py
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import altair as alt
 import fsspec
 import pandas as pd
 import streamlit as st
 
-from clippers_home_court import LAC, analysis, storage
-from clippers_home_court.seasons import (
+# Import the package from this checkout, not a previously installed copy: Streamlit Cloud
+# only reinstalls requirements when requirements.txt changes, so an installed copy can lag.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from clippers_home_court import LAC, analysis, storage  # noqa: E402
+from clippers_home_court.seasons import (  # noqa: E402
     ANALYSIS_FIRST_SEASON,
     INTUIT_DOME,
     SHARED_ARENA,
