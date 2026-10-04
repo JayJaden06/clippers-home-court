@@ -1,7 +1,7 @@
-"""Ingestion job: the Cloud Run Job entrypoint.
+"""Ingestion job: the clippers-ingest entrypoint.
 
 Each run backfills any season missing from storage and re-pulls the current
-season, so a daily schedule keeps it fresh and reruns are idempotent.
+season, so reruns are idempotent and keep the current season fresh.
 
     python -m clippers_home_court.job                 # backfill + refresh current
     python -m clippers_home_court.job --seasons 2024 2025

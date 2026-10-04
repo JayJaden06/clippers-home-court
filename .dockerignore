@@ -1,6 +1,0 @@
-.venv
-.git
-data
-dashboard
-tests
-**/__pycache__

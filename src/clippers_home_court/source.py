@@ -18,7 +18,7 @@ def fetch_season(start_year: int, *, retries: int = 4, timeout: int = 60) -> pd.
     """Every team's box score line for one regular season (two rows per game).
 
     stats.nba.com is slow and drops requests from some datacenter IP ranges;
-    set NBA_API_PROXY to route through a proxy if the Cloud Run job times out.
+    set NBA_API_PROXY to route through a proxy if requests time out.
     """
     proxy = os.environ.get("NBA_API_PROXY") or None
     season = season_label(start_year)
