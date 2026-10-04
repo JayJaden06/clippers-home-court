@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clippers-home-court"
+version = "0.1.0"
+description = "Did the move to Intuit Dome change the Clippers' home-court advantage? A validated NBA data pipeline on Cloud Run."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "nba_api>=1.10",
+    "pydantic>=2.7",
+    "pandas>=2.2",
+    "pyarrow>=16",
+    "gcsfs>=2024.6",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dashboard = ["streamlit>=1.40", "altair>=5.4"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+clippers-ingest = "clippers_home_court.job:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clippers_home_court"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
