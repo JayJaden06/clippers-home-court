@@ -52,9 +52,10 @@ rest days.
 
 ![Arena moves](docs/arena-moves.png)
 
-Four other teams opened new arenas in the same city during 2013-2026. For each one, I compared
-its home edge (vs. the league average) in the 3 seasons before the move with its first 2
-seasons in the new building, skipping the no-fan 2020-21 season. Subtracting the league average
+Four other teams moved into newly built arenas in the same metro area during 2013-2026 (new
+buildings, not renamed ones; renames such as Staples Center → Crypto.com Arena don't count).
+For each one, I compared its home edge (vs. the league average) in the 3 seasons before the
+move with its first 2 seasons in the new building, skipping the no-fan 2020-21 season. Subtracting the league average
 each season makes this a difference-in-differences against the rest of the league.
 
 | Move | Change (pts/100) | 95% CI |

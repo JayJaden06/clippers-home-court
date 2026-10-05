@@ -388,8 +388,8 @@ with tab_moves:
             else "The Clippers' jump is within the normal range."
         )
         st.markdown(
-            f"**{verdict}** {len(others_moved)} other teams opened new arenas in the same "
-            "city during this period. Their home advantage changed by "
+            f"**{verdict}** {len(others_moved)} other teams moved into newly built arenas in "
+            "the same metro area during this period. Their home advantage changed by "
             + ", ".join(f"{r.team} {r.delta:+.1f}" for r in others_moved.itertuples())
             + f". The Clippers' change was **{lac_move['delta']:+.1f}**. "
             f"For teams that didn't move, a change at least that big happened "

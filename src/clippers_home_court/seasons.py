@@ -14,9 +14,11 @@ INTUIT_DOME_FIRST_SEASON = 2024
 SHARED_ARENA = "Crypto.com Arena"
 INTUIT_DOME = "Intuit Dome"
 
-# Teams that opened a new arena in the same market during the data window:
-# team -> (first season in the new building, old arena, new arena). Relocations to a
-# new city (e.g. the Nets to Brooklyn in 2012) are left out on purpose.
+# Teams that moved into a newly built arena in the same metro area during the data window:
+# team -> (first season in the new building, old arena, new arena). Every one is a new
+# building, not a renamed one; renames (Staples Center -> Crypto.com Arena, Philips Arena ->
+# State Farm Arena, ...) are deliberately not moves. This is every NBA arena opened since
+# 2013; the Nets' 2012 move to Brooklyn (a relocation) predates the data anyway.
 ARENA_MOVES = {
     "SAC": (2016, "Sleep Train Arena", "Golden 1 Center"),
     "DET": (2017, "The Palace of Auburn Hills", "Little Caesars Arena"),
