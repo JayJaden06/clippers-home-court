@@ -107,14 +107,20 @@ def fetch_season(start_year: int, *, retries: int = 3) -> pd.DataFrame:
         for attempt in range(1, retries + 1):
             resp = session.get(url, headers=HEADERS, timeout=30)
             time.sleep(REQUEST_GAP_S)
-            if resp.status_code == 200:
+            if resp.status_code in (200, 404):
                 break
             if attempt == retries:
                 resp.raise_for_status()
             log.warning("%s: HTTP %s, retry %d", url, resp.status_code, attempt)
             time.sleep(30 * attempt)
+        # No page, or a page without a regular-season table, means no games yet (preseason).
+        # A missing team mid-season orphans its opponents' rows, which the job's
+        # rejection-rate check catches, so nothing partial gets written.
+        if resp.status_code == 404 or 'id="team_game_log_reg"' not in resp.text:
+            log.info("%s: no regular-season games yet", url)
+            continue
         frames.append(parse_game_log(resp.text, team, start_year))
-    df = pd.concat(frames, ignore_index=True)
+    df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     log.info("fetched %d-%02d from Basketball Reference: %d rows", start_year,
              (start_year + 1) % 100, len(df))  # fmt: skip
     return df

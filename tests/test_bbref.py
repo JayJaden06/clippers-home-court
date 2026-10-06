@@ -54,3 +54,23 @@ def test_bbref_codes_round_trip():
     assert bbref.bbref_code("CHA", 2014) == "CHO"
     assert bbref.bbref_code("BKN", 2016) == "BRK"
     assert bbref.to_nba("PHO") == "PHX"
+
+
+def test_source_falls_back_to_bbref(monkeypatch):
+    from clippers_home_court import source
+
+    def blocked(*args, **kwargs):
+        raise ConnectionError("stats.nba.com reset the connection")
+
+    monkeypatch.setattr(source, "fetch_nba_api", blocked)
+    monkeypatch.setattr(source.bbref, "fetch_season", lambda year: pd.DataFrame({"x": [year]}))
+    df = source.fetch_season(2026)
+    assert df.attrs["source"] == "basketball-reference.com"
+
+    monkeypatch.setenv("BBREF_FALLBACK", "0")
+    try:
+        source.fetch_season(2026)
+    except ConnectionError:
+        pass
+    else:
+        raise AssertionError("expected the NBA API error when the fallback is off")

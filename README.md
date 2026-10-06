@@ -40,8 +40,8 @@ season.
 - **How sure is this?** In 94% of 4,000 bootstrap resamples the change is positive, but the 95%
   interval still crosses zero. Two seasons is 82 home games, so the evidence is strong but not
   yet conclusive. If you drop the bubble season and the limited-fan season (2019-20, 2020-21),
-  the change grows to **+5.1** (96% of resamples positive). Re-running the ingest job during
-  2026-27 adds new games, so the interval will narrow as the season goes on.
+  the change grows to **+5.1** (96% of resamples positive). The data refreshes every morning,
+  so the interval will narrow as 2026-27 games come in.
 
 *What this doesn't control for:* roster changes between eras (this measures home edge, not
 team strength, but a roster can still be better suited to home or road play), schedule
@@ -131,6 +131,14 @@ From 2024-25 on they're detected from the matchup string. Earlier ones are liste
 **Idempotent runs.** Each run backfills any missing season and re-pulls the current one,
 overwriting that season's parquet file. Re-running is always safe.
 
+**Daily refresh.** A scheduled GitHub Actions job ([refresh.yml](.github/workflows/refresh.yml))
+runs the ingest every morning at 13:00 UTC and commits any new games, and Streamlit Community
+Cloud redeploys the dashboard from that commit. stats.nba.com usually blocks GitHub's servers,
+so the job falls back to Basketball Reference when it does; each run's report
+(`data/exports/last_run.json`) records which source it used. A game that ends just before the
+run can appear for one team but not the other. That game is rejected that day and picked up the
+next, so the job allows up to a 2% rejection rate.
+
 **Uncertainty.** Intervals come from resampling the Clippers' games with replacement, separately
 for home and road and within each season. League averages are treated as fixed, since each one
 is based on about 1,230 games.
@@ -143,11 +151,12 @@ pip install -e ".[dashboard,dev]"
 
 clippers-ingest                 # pull/refresh into ./data
 streamlit run dashboard/app.py  # dashboard on http://localhost:8501
-pytest                          # 33 tests
+pytest                          # 34 tests
 ```
 
 A snapshot of the data is committed under `data/` so the dashboard works without running the
-ingest step. The live dashboard is hosted on Streamlit Community Cloud and reads that snapshot.
+ingest step. The live dashboard is hosted on Streamlit Community Cloud and reads that snapshot,
+which the daily job keeps current.
 
 **Tableau:** connect to `data/exports/team_games.csv`. It has one row
 per team per game, with both teams' box scores and a `location` column of home, away or neutral.

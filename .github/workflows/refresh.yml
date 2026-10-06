@@ -1,0 +1,62 @@
+name: refresh-data
+
+# Pull the current season every morning and commit any new games. Streamlit Community
+# Cloud redeploys the dashboard when the commit lands.
+on:
+  schedule:
+    - cron: "0 13 * * *" # 13:00 UTC = 5-6am Pacific, after the night's games are final
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/refresh.yml] # run once when this file changes
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # stats.nba.com usually blocks GitHub's runners; don't wait long before falling
+      # back to Basketball Reference.
+      NBA_API_RETRIES: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+
+      # A game finished minutes before the run can show up for one team and not the other;
+      # that game is rejected today and picked up tomorrow, so allow a small reject rate.
+      - name: Ingest current season
+        run: clippers-ingest --max-reject-rate 0.02
+
+      - name: Report source
+        run: |
+          python - <<'EOF'
+          import json
+          report = json.load(open("data/exports/last_run.json"))
+          for season, info in report["seasons"].items():
+              print(f"::notice title={season}::{info.get('games', 0)} games from "
+                    f"{info.get('source', 'unknown')}, {len(info.get('rejected', []))} rejected")
+          EOF
+
+      - name: Commit new games
+        run: |
+          git add data
+          if git diff --cached --quiet -- data/team_games; then
+            echo "No new games."
+            exit 0
+          fi
+          last=$(python -c "import pandas as pd; print(pd.read_csv('data/exports/team_games.csv', usecols=['game_date'])['game_date'].max())")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Refresh data through ${last}"
+          git push

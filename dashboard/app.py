@@ -100,6 +100,16 @@ ctx = analysis.league_context(analysis.home_edges(data))
 
 # ---- The answer ------------------------------------------------------------------------------
 st.title("Did Intuit Dome give the Clippers a bigger home-court advantage?")
+latest_season = df["season"].max()
+lac_latest_games = int(((df["season"] == latest_season) & (df["team"] == LAC)).sum())
+st.caption(
+    f"Data through **{all_games['game_date'].max():%B %d, %Y}**, refreshed every morning."
+    + (
+        f" {latest_season} is in progress ({lac_latest_games} Clippers games so far)."
+        if lac_latest_games < 82
+        else ""
+    )
+)
 tab_home, tab_wall, tab_moves = st.tabs(
     ["Home advantage", "The Wall: free throws", "Other new arenas"]
 )
@@ -111,7 +121,7 @@ with tab_home:
         f"than the typical NBA team. Since moving to Intuit Dome they get *more*: about "
         f"**{change['delta']:.1f} points per 100 possessions** more than before. "
         f"In {change['p_increase']:.0%} of 4,000 resamples of the games the improvement "
-        f"holds up, but it's only two seasons so far."
+        f"holds up, but that's only {len(new['seasons'])} seasons of games so far."
     )
 
     c1, c2, c3 = st.columns(3)
@@ -252,7 +262,7 @@ with tab_home:
             f"- **Confidence:** I resampled the Clippers' games 4,000 times. The change came out "
             f"positive {change['p_increase']:.0%} of the time. The 95% range is {lo:+.1f} to "
             f"{hi:+.1f}, which still touches zero, so the result isn't conclusive yet. "
-            "It should firm up as the 2026-27 season adds games.\n"
+            "The data refreshes daily, so this firms up as more games are played.\n"
             "- **Not controlled for:** roster changes, rest, schedule."
         )
 
@@ -295,15 +305,21 @@ with tab_wall:
         return 100 * (rows["ftm"].sum() - rows["expected"].sum()) / rows["fta"].sum()
 
     dome = lac_ft[lac_ft["arena"] == INTUIT_DOME]
-    y1, y2 = dome.iloc[0], dome.iloc[-1]
+    league_ft = ft[ft["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
+    # Binomial noise in one arena-season's FT% (visitors shoot ~78%), in pct. points.
+    noise = 100 * (0.78 * 0.22 / league_ft["fta"].mean()) ** 0.5
+    combined = pooled(dome)
+    clear = combined <= -2 * noise / len(dome) ** 0.5
+    by_season = "; ".join(
+        f"{r.season}: **{r.diff:+.1f}** ({ordinal(r.rank)} of 30)" for r in dome.itertuples()
+    )
     st.subheader("Does The Wall make opponents miss free throws?")
     st.markdown(
-        f"**Not in a way that lasts.** The Wall is a 51-row section of Clippers fans behind one "
-        f"basket. In Intuit Dome's first season, visitors shot **{-y1['diff']:.1f} points "
-        f"worse** from the line than they did everywhere else, the {ordinal(y1['rank'])}-"
-        f"toughest arena in the league. The next season they shot **{y2['diff']:.1f} points "
-        f"better**, {ordinal(y2['rank'])} of 30. Across both seasons: **{pooled(dome):+.1f}**, "
-        "essentially zero."
+        f"**{'Possibly.' if clear else 'Not in a way that lasts.'}** The Wall is a 51-row "
+        "section of Clippers fans behind one basket. Here is how visitors shot free throws at "
+        "Intuit Dome compared with their own FT% everywhere else (negative = worse; rank 1 = "
+        f"toughest arena that season). {by_season}. All seasons combined: "
+        f"**{combined:+.1f}** points" + ("." if clear else ", within what luck alone produces.")
     )
     st.caption(
         "Each gray dot is one NBA arena that season. Its height is how visitors shot free "
@@ -311,7 +327,6 @@ with tab_wall:
         "visitors shot worse than usual. The number is the Clippers' arena rank (#1 = hardest "
         "place for visitors)."
     )
-    league_ft = ft[ft["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
     others = (
         alt.Chart(league_ft[league_ft["arena_team"] != LAC])
         .mark_circle(size=45, color=PALETTE["ink"], opacity=0.35)
@@ -347,13 +362,12 @@ with tab_wall:
         (zero.encode(y="y:Q") + others + lac_dots + lac_ranks).properties(height=360),
         width="stretch",
     )
-    noise = 100 * (0.78 * 0.22 / league_ft["fta"].mean()) ** 0.5
     st.markdown(
         f"**Why it bounces around:** visitors take about {league_ft['fta'].mean():.0f} free "
         f"throws in an arena per season. At that sample size, luck alone moves an arena's "
         f"number by about ±{noise:.1f} points in a typical season, about the size of the "
-        "swings in the chart. Year one looked like a Wall effect; year two suggests it was "
-        "mostly luck."
+        "swings in the chart. One season can look like a Wall effect by luck alone, so the "
+        "seasons together are what count."
     )
     with st.expander("Why not compare the two baskets directly?"):
         st.markdown(
@@ -485,6 +499,7 @@ with tab_moves:
         )  # fmt: skip
 
 st.caption(
-    "Data: stats.nba.com via nba_api (2018-19 on) and Basketball Reference (2013-14 to "
-    "2017-18). Source: github.com/JayJaden06/clippers-home-court"
+    "Data: stats.nba.com via nba_api (2018-19 on, with Basketball Reference as a fallback) "
+    "and Basketball Reference (2013-14 to 2017-18), refreshed daily by a GitHub Actions job. "
+    "Source: github.com/JayJaden06/clippers-home-court"
 )

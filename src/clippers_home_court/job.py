@@ -27,9 +27,10 @@ def run(seasons: list[int], *, uri: str, max_reject_rate: float) -> dict:
     for year in seasons:
         label = season_label(year)
         raw = source.fetch_season(year)
+        source_name = raw.attrs.get("source", "unknown")
         if raw.empty:
             log.info("%s: no games yet, skipping", label)
-            report["seasons"][label] = {"games": 0}
+            report["seasons"][label] = {"games": 0, "source": source_name}
             continue
 
         result = validate(raw)
@@ -38,6 +39,7 @@ def run(seasons: list[int], *, uri: str, max_reject_rate: float) -> dict:
         for r in result.rejected:
             log.warning("%s: rejected game %s: %s", label, r.game_id, r.reason)
         report["seasons"][label] = {
+            "source": source_name,
             "games": len(result.games),
             "rejected": [vars(r) for r in result.rejected],
             "neutral_site": sum(g.neutral_site for g in result.games),
