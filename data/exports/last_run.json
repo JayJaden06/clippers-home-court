@@ -1,14 +1,14 @@
 {
-  "started_at": "2026-10-22T17:44:31.255395+00:00",
+  "started_at": "2026-10-23T17:35:45.162016+00:00",
   "data_uri": "data",
   "seasons": {
     "2026-27": {
       "source": "basketball-reference.com",
-      "games": 14,
+      "games": 16,
       "rejected": [],
       "neutral_site": 0
     }
   },
-  "finished_at": "2026-10-22T17:48:34.153701+00:00",
-  "total_team_games": 31366
+  "finished_at": "2026-10-23T17:39:43.077377+00:00",
+  "total_team_games": 31370
 }
