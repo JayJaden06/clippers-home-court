@@ -5,3 +5,7 @@ __pycache__/
 .ruff_cache/
 dist/
 .streamlit/secrets.toml
+
+# Local browser-tool output
+.playwright-mcp/
+%USERPROFILE%/
