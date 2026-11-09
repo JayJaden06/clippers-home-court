@@ -36,7 +36,8 @@ LIMITED_FAN_SEASONS = ("2019-20", "2020-21")
 
 st.set_page_config(page_title="Clippers Home Court", page_icon="🏀", layout="wide")
 
-# Validated categorical slots (light, dark).
+# ---- Theme -----------------------------------------------------------------------------------
+# Validated categorical slots (light, dark); text always uses the ink tokens, never a series color.
 DARK = getattr(getattr(st.context, "theme", None), "type", "light") == "dark"
 PALETTE = {
     SHARED_ARENA: "#d95926" if DARK else "#eb6834",
@@ -45,16 +46,81 @@ PALETTE = {
     "Road": "#9085e9" if DARK else "#4a3aa7",
     "ink": "#c3c2b7" if DARK else "#52514e",
 }
-HALF_SCALE = alt.Scale(
-    domain=["1st half", "2nd half"],
-    range=["#199e70" if DARK else "#1baf7a", "#9085e9" if DARK else "#4a3aa7"],
-)
+INK = "#f2f1ea" if DARK else "#1f1e1c"
+MUTED = "#a3a29a" if DARK else "#6b6a66"
+SURFACE = "#1f1f1d" if DARK else "#f7f6f2"
+LINE = "#3a3a37" if DARK else "#e4e2db"
 ARENA_SCALE = alt.Scale(
     domain=[SHARED_ARENA, INTUIT_DOME], range=[PALETTE[SHARED_ARENA], PALETTE[INTUIT_DOME]]
 )
+HALF_SCALE = alt.Scale(domain=["1st half", "2nd half"], range=[PALETTE["Home"], PALETTE["Road"]])
 SEASON_AXIS = alt.X("season:O", title=None, axis=alt.Axis(labelAngle=0))
 
+st.markdown(
+    f"""
+<style>
+.block-container {{ padding-top: 2.2rem; max-width: 1200px; }}
+.hero-sub {{ color: {MUTED}; font-size: 1.05rem; margin: -0.4rem 0 1.2rem; }}
+.cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 14px; margin: 0.4rem 0 1.6rem; }}
+.card {{ background: {SURFACE}; border: 1px solid {LINE}; border-radius: 16px;
+         padding: 18px 20px 16px; }}
+.card .q {{ color: {MUTED}; font-size: 0.92rem; line-height: 1.3; min-height: 2.4em; }}
+.card .v {{ display: flex; align-items: baseline; gap: 10px; margin: 8px 0 4px; }}
+.card .verdict {{ font-size: 1.9rem; font-weight: 750; color: {INK}; }}
+.card .icon {{ font-size: 1.5rem; }}
+.card .num {{ color: {INK}; font-weight: 650; font-size: 1.05rem; }}
+.card .sub {{ color: {MUTED}; font-size: 0.86rem; line-height: 1.35; }}
+.answer {{ border-left: 4px solid {PALETTE[INTUIT_DOME]}; background: {SURFACE};
+           border-radius: 0 12px 12px 0; padding: 12px 18px; margin: 0.6rem 0 1.2rem;
+           color: {INK}; font-size: 1.08rem; }}
+.answer b {{ font-weight: 700; }}
+.tiles {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 12px; margin: 0.2rem 0 1rem; }}
+.tile {{ border: 1px solid {LINE}; border-radius: 12px; padding: 12px 14px; }}
+.tile .l {{ color: {MUTED}; font-size: 0.82rem; }}
+.tile .n {{ color: {INK}; font-size: 1.7rem; font-weight: 700; line-height: 1.25; }}
+.tile .s {{ color: {MUTED}; font-size: 0.8rem; }}
+.stTabs [data-baseweb="tab"] p {{ font-size: 1.02rem; font-weight: 600; }}
+.court svg {{ width: 100%; height: auto; display: block; }}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
+
+def html(markup: str) -> None:
+    st.markdown(markup, unsafe_allow_html=True)
+
+
+def answer(text: str) -> None:
+    html(f'<div class="answer">{text}</div>')
+
+
+def tiles(items: list[tuple[str, str, str]]) -> None:
+    """A row of small stat tiles: (label, number, footnote)."""
+    cells = "".join(
+        f'<div class="tile"><div class="l">{label}</div><div class="n">{num}</div>'
+        f'<div class="s">{foot}</div></div>'
+        for label, num, foot in items
+    )
+    html(f'<div class="tiles">{cells}</div>')
+
+
+def chart(c: alt.Chart, height: int) -> None:
+    st.altair_chart(
+        c.properties(height=height)
+        .configure_view(stroke=None)
+        .configure_axis(
+            gridColor=LINE, domainColor=LINE, tickColor=LINE, labelColor=MUTED,
+            titleColor=MUTED, labelFontSize=12, titleFontSize=12, titleFontWeight="normal",
+        )
+        .configure_legend(labelColor=INK, labelFontSize=13, symbolSize=120),
+        width="stretch",
+    )  # fmt: skip
+
+
+# ---- Data ------------------------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner="Loading games…")
 def load() -> tuple[pd.DataFrame, dict]:
     uri = storage.data_uri()
@@ -98,133 +164,187 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+def arena_of(season: str) -> str:
+    return INTUIT_DOME if season >= "2024-25" else SHARED_ARENA
+
+
 all_games, report = load()
 if all_games.empty:
     st.error("No data found. Run `python -m clippers_home_court.job` first.")
     st.stop()
 df = all_games[all_games["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
 
-# The toggle lives in the Details section at the bottom; read its state up here.
+# The toggle lives in the Details section; read its state up here.
 exclude = LIMITED_FAN_SEASONS if st.session_state.get("exclude_limited") else ()
 result = compare(df, exclude)
 eras, change = result["eras"], result["change"]
 old, new = eras[SHARED_ARENA], eras[INTUIT_DOME]
 data = df[~df["season"].isin(exclude)]
 ctx = analysis.league_context(analysis.home_edges(data))
-
-# ---- The answer ------------------------------------------------------------------------------
-st.title("Did Intuit Dome give the Clippers a bigger home-court advantage?")
 latest_season = df["season"].max()
 lac_latest_games = int(((df["season"] == latest_season) & (df["team"] == LAC)).sum())
-st.caption(
-    f"Data through **{all_games['game_date'].max():%B %d, %Y}**, refreshed every morning."
-    + (
-        f" {latest_season} is in progress ({lac_latest_games} Clippers games so far)."
-        if lac_latest_games < 82
-        else ""
-    )
-)
-tab_home, tab_wall, tab_moves = st.tabs(
-    ["Home advantage", "The Wall: free throws", "Other new arenas"]
+in_progress = lac_latest_games < 82
+
+# Free throws: visitors at every arena, every season.
+ft = visitor_fts(all_games)
+ft = ft[ft["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
+lac_ft = ft[ft["arena_team"] == LAC].assign(arena=lambda d: d["season"].map(arena_of))
+dome_ft = lac_ft[lac_ft["arena"] == INTUIT_DOME]
+noise = 100 * (0.78 * 0.22 / ft["fta"].mean()) ** 0.5  # one arena-season, pct. points
+wall_effect = 100 * (dome_ft["ftm"].sum() - dome_ft["expected"].sum()) / dome_ft["fta"].sum()
+wall_real = wall_effect <= -2 * noise / len(dome_ft) ** 0.5
+
+# Arena moves.
+moves = arena_moves(all_games)
+placebo = placebo_changes(all_games)
+have_moves = not moves.empty and not placebo.empty and LAC in set(moves["team"])
+if have_moves:
+    lac_move = moves.set_index("team").loc[LAC]
+    others_moved = moves[moves["team"] != LAC]
+    share_bigger = float((placebo["delta"] >= lac_move["delta"]).mean())
+
+# ---- Header + the three answers --------------------------------------------------------------
+st.title("🏀 Clippers Home Court")
+html(
+    '<div class="hero-sub">In 2024 the Clippers left the arena they shared with the Lakers for '
+    "their own building, Intuit Dome. Did it help? "
+    f"Data through <b>{all_games['game_date'].max():%b %d, %Y}</b>, updated every morning.</div>"
 )
 
+shared_last = ctx[ctx["arena"] == SHARED_ARENA].iloc[-1]
+dome_first = ctx[ctx["arena"] == INTUIT_DOME].iloc[0]
+home_yes = change["p_increase"] >= 0.9
+cards = [
+    (
+        "Do the Clippers get a bigger home-court boost at Intuit Dome?",
+        "✅",
+        "Yes" if home_yes else "Maybe",
+        f"{ordinal(int(shared_last['rank']))} → {ordinal(int(dome_first['rank']))} in the NBA",
+        f"From {ordinal(int(shared_last['rank']))} of 30 in their last season at the old arena "
+        f"to {ordinal(int(dome_first['rank']))} in their first at Intuit Dome.",
+    ),
+    (
+        "Does The Wall make visitors miss free throws?",
+        "🤷",
+        "Not really" if not wall_real else "A little",
+        f"{wall_effect:+.1f} pts of FT%".replace("-", "−"),
+        "Visitors shoot about as well at Intuit Dome as they do everywhere else.",
+    ),
+]
+if have_moves:
+    cards.append(
+        (
+            "Do new arenas usually give teams a boost like this?",
+            "🏟️",
+            "No",
+            f"Only {share_bigger:.0%} of teams",
+            "see a jump as big as the Clippers' by chance. Other new arenas barely moved.",
+        )
+    )
+html(
+    '<div class="cards">'
+    + "".join(
+        f'<div class="card"><div class="q">{q}</div><div class="v"><span class="icon">{i}'
+        f'</span><span class="verdict">{v}</span></div><div class="num">{n}</div>'
+        f'<div class="sub">{s}</div></div>'
+        for q, i, v, n, s in cards
+    )
+    + "</div>"
+)
+
+tab_home, tab_wall, tab_games, tab_moves = st.tabs(
+    ["🏠 Home advantage", "🧱 The Wall", "📅 Every home game", "🏟️ Other new arenas"]
+)
+
+# ---- Home advantage --------------------------------------------------------------------------
 with tab_home:
-    verdict = "Very likely, yes." if change["p_increase"] >= 0.9 else "Possibly."
-    st.markdown(
-        f"**{verdict}** At their old shared arena the Clippers got *less* of a home boost "
-        f"than the typical NBA team. Since moving to Intuit Dome they get *more*: about "
-        f"**{change['delta']:.1f} points per 100 possessions** more than before. "
-        f"In {change['p_increase']:.0%} of 4,000 resamples of the games the improvement "
-        f"holds up, but that's only {len(new['seasons'])} seasons of games so far."
+    answer(
+        f"<b>{'Yes.' if home_yes else 'Possibly.'}</b> At the shared arena the Clippers' home "
+        "boost was average at best. At Intuit Dome it's one of the best in the league."
     )
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric(
-        f"Crypto.com Arena ({old['seasons'][0]} to {old['seasons'][-1]})", f"{old['excess']:+.1f}"
+    st.subheader("Where the Clippers' home court ranks in the NBA each season")
+    st.caption("1 = the biggest home-court boost in the league. Hover a dot for details.")
+    ranks = ctx.assign(
+        label=lambda d: (
+            "#"
+            + d["rank"].astype(str)
+            + d["season"].map(lambda s: " so far" if (s == latest_season and in_progress) else "")
+        ),
+        note=lambda d: d["season"].map(
+            lambda s: "in progress" if (s == latest_season and in_progress) else "full season"
+        ),
     )
-    c1.caption("Home advantage vs. the average NBA team")
-    c2.metric(f"Intuit Dome ({new['seasons'][0]} to {new['seasons'][-1]})", f"{new['excess']:+.1f}")
-    c2.caption("Home advantage vs. the average NBA team")
-    c3.metric("Change after the move", f"{change['delta']:+.1f}")
-    c3.caption("Points per 100 possessions")
-
-    with st.expander('What does "home advantage" mean here?'):
-        st.markdown(
-            "**Home advantage** = how much better a team does at home than on the road, measured "
-            "by point margin per 100 possessions. It's the same players in both, so the difference "
-            "comes from the building: the crowd, not traveling, sleeping in your own bed.\n\n"
-            "Every team plays better at home. The league average is about +3 to +5 points per "
-            "100 possessions. The numbers above show how far the Clippers sit **above or below** "
-            "that average."
-        )
-
-    # ---- Chart 1: season by season ---------------------------------------------------------------
-    st.subheader("Season by season: from 27th in the league to 1st")
-    st.caption(
-        "Each dot is the Clippers' home advantage that season. The gray line is the league "
-        "average. The number is their rank out of 30 teams."
+    hover = alt.selection_point(on="pointerover", fields=["season"], empty=False, nearest=True)
+    rbase = alt.Chart(ranks).encode(x=SEASON_AXIS)
+    dome_band = (
+        alt.Chart(ranks[ranks["arena"] == INTUIT_DOME])
+        .mark_rect(color=PALETTE[INTUIT_DOME], opacity=0.07)
+        .encode(x=SEASON_AXIS)
     )
-    ctx["rank_label"] = "#" + ctx["rank"].astype(str)
-    base = alt.Chart(ctx).encode(x=SEASON_AXIS)
-    tooltip = [
-        alt.Tooltip("season:N", title="Season"),
-        alt.Tooltip("arena:N", title="Home arena"),
-        alt.Tooltip("edge:Q", title="Clippers home advantage", format="+.1f"),
-        alt.Tooltip("league_mean:Q", title="League average", format="+.1f"),
-        alt.Tooltip("rank:Q", title="Rank of 30"),
-    ]
-    league = base.mark_line(color=PALETTE["ink"], strokeWidth=2, strokeDash=[5, 4]).encode(
-        y=alt.Y("league_mean:Q", title="Home advantage (pts per 100 possessions)"), tooltip=tooltip
-    )
-    dots = base.mark_circle(size=180, opacity=1, stroke="white", strokeWidth=2).encode(
-        y="edge:Q",
-        color=alt.Color("arena:N", scale=ARENA_SCALE, legend=alt.Legend(title=None, orient="top")),
-        tooltip=tooltip,
-    )
-    ranks = base.mark_text(dx=18, align="left", fontSize=12, color=PALETTE["ink"]).encode(
-        y="edge:Q", text="rank_label:N"
-    )
-    zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color=PALETTE["ink"], opacity=0.4)
-    st.altair_chart(
-        (zero.encode(y="y:Q") + league + dots + ranks).properties(height=340), width="stretch"
-    )
-
-    left, right = st.columns(2)
-
-    # ---- Chart 2: home vs road -------------------------------------------------------------------
-    with left:
-        st.subheader("Home vs. road")
-        st.caption(
-            "Point margin per 100 possessions. The gap between the lines is the home advantage. "
-            "In 2023-24 they were actually better on the road."
-        )
-        long = ctx.melt(id_vars=["season"], value_vars=["home_net", "away_net"], value_name="net")
-        long["split"] = long["variable"].map({"home_net": "Home", "away_net": "Road"})
-        lines = alt.Chart(long).encode(
-            x=SEASON_AXIS,
-            y=alt.Y("net:Q", title="Point margin per 100 possessions"),
+    band_label = (
+        alt.Chart(ranks[ranks["arena"] == INTUIT_DOME].head(1))
+        .mark_text(align="left", dx=-30, dy=4, fontSize=12, fontWeight="bold",
+                   color=PALETTE[INTUIT_DOME])
+        .encode(x=SEASON_AXIS, y=alt.value(348), text=alt.value("Intuit Dome →"))
+    )  # fmt: skip
+    rline = rbase.mark_line(color=PALETTE["ink"], strokeWidth=2, opacity=0.5).encode(
+        y=alt.Y("rank:Q", title="Rank (of 30)", scale=alt.Scale(domain=[30, 1], nice=False),
+                axis=alt.Axis(values=[1, 5, 10, 15, 20, 25, 30]))
+    )  # fmt: skip
+    rdots = (
+        rbase.mark_circle(opacity=1, stroke=SURFACE, strokeWidth=2)
+        .encode(
+            y="rank:Q",
+            size=alt.condition(hover, alt.value(420), alt.value(230)),
             color=alt.Color(
-                "split:N",
-                scale=alt.Scale(domain=["Home", "Road"], range=[PALETTE["Home"], PALETTE["Road"]]),
-                legend=alt.Legend(title=None, orient="top"),
+                "arena:N", scale=ARENA_SCALE, legend=alt.Legend(title=None, orient="top")
             ),
             tooltip=[
                 alt.Tooltip("season:N", title="Season"),
-                alt.Tooltip("split:N", title="Where"),
-                alt.Tooltip("net:Q", title="Point margin / 100", format="+.1f"),
+                alt.Tooltip("arena:N", title="Home arena"),
+                alt.Tooltip("rank:Q", title="Rank of 30"),
+                alt.Tooltip("edge:Q", title="Home boost (pts/100 poss.)", format="+.1f"),
+                alt.Tooltip("league_mean:Q", title="League average boost", format="+.1f"),
+                alt.Tooltip("note:N", title="Season"),
             ],
         )
-        st.altair_chart(
-            (lines.mark_line(strokeWidth=2) + lines.mark_circle(size=80, opacity=1)).properties(
-                height=300
-            ),
-            width="stretch",
-        )
+        .add_params(hover)
+    )
+    rlabels = rbase.mark_text(dy=-20, fontSize=13, fontWeight="bold", color=INK).encode(
+        y="rank:Q", text="label:N"
+    )
+    chart(dome_band + band_label + rline + rdots + rlabels, 360)
 
-    # ---- Why: defense ----------------------------------------------------------------------------
+    left, right = st.columns(2, gap="large")
+    lac = analysis.with_era(data[(data["team"] == LAC) & (data["location"] != "neutral")])
+    with left:
+        st.subheader("Win % at home vs. on the road")
+        st.caption("The gap between the lines is the home-court boost.")
+        wins = analysis.summarize(lac, ["season", "location"])
+        wins = wins[wins.groupby("season")["games"].transform("sum") >= 20]  # skip tiny samples
+        wins["split"] = wins["location"].map({"home": "Home", "away": "Road"})
+        sel = alt.selection_point(fields=["split"], bind="legend")
+        wl = alt.Chart(wins).encode(
+            x=SEASON_AXIS,
+            y=alt.Y("win_pct:Q", title="Win %", axis=alt.Axis(format="%"),
+                    scale=alt.Scale(domain=[0, 0.85])),
+            color=alt.Color("split:N", scale=alt.Scale(domain=["Home", "Road"],
+                            range=[PALETTE["Home"], PALETTE["Road"]]),
+                            legend=alt.Legend(title=None, orient="top")),
+            opacity=alt.condition(sel, alt.value(1), alt.value(0.15)),
+            tooltip=[
+                alt.Tooltip("season:N", title="Season"),
+                alt.Tooltip("split:N", title="Where"),
+                alt.Tooltip("win_pct:Q", title="Win %", format=".0%"),
+                alt.Tooltip("wins:Q", title="Wins"),
+                alt.Tooltip("games:Q", title="Games"),
+            ],
+        )  # fmt: skip
+        chart(wl.mark_line(strokeWidth=2) + wl.mark_circle(size=90).add_params(sel), 300)
+        st.caption("Click a legend item to highlight it.")
+
     with right:
         st.subheader("Why? Opponents shoot worse there")
-        lac = analysis.with_era(data[(data["team"] == LAC) & (data["location"] != "neutral")])
         split = analysis.summarize(lac, ["era", "location"]).set_index(["era", "location"])
         drop = split.xs("away", level="location") - split.xs("home", level="location")
         why = pd.DataFrame(
@@ -233,13 +353,14 @@ with tab_home:
                 "drop": [100 * drop.loc[a, "opp_efg"] for a in (SHARED_ARENA, INTUIT_DOME)],
             }
         )
+        st.caption("How much worse opponents shoot against the Clippers at home than on the road.")
         bars = (
             alt.Chart(why)
-            .mark_bar(size=48, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .mark_bar(size=70, cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
                 x=alt.X("arena:N", title=None, sort=[SHARED_ARENA, INTUIT_DOME],
-                        axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("drop:Q", title="Drop in opponent shooting (pct. points)"),
+                        axis=alt.Axis(labelAngle=0, labelFontSize=13, labelColor=INK)),
+                y=alt.Y("drop:Q", title="Drop in opponents' shooting (eFG%, pct. points)"),
                 color=alt.Color("arena:N", scale=ARENA_SCALE, legend=None),
                 tooltip=[
                     alt.Tooltip("arena:N", title="Arena"),
@@ -247,159 +368,269 @@ with tab_home:
                 ],
             )
         )  # fmt: skip
-        labels = bars.mark_text(dy=-10, fontSize=13).encode(
-            text=alt.Text("drop:Q", format=".1f"), color=alt.value(PALETTE["ink"])
+        blabels = bars.mark_text(dy=-12, fontSize=18, fontWeight="bold").encode(
+            text=alt.Text("drop:Q", format=".1f"), color=alt.value(INK)
         )
-        st.altair_chart((bars + labels).properties(height=300), width="stretch")
-        st.caption(
-            "How much worse opponents shoot (effective FG%) against the Clippers at home than "
-            f"on the road: {why['drop'].iloc[0]:.1f} points at the old arena, "
-            f"{why['drop'].iloc[1]:.1f} at Intuit Dome. Most of the new advantage is defense."
-        )
+        chart(bars + blabels, 300)
+        st.caption("Most of the new advantage is defense.")
 
-    # ---- Details ---------------------------------------------------------------------------------
-    st.divider()
-    st.subheader("Details")
-    st.toggle(
-        "Leave out 2019-20 and 2020-21 (Orlando bubble and empty-arena seasons)",
-        key="exclude_limited",
-    )
-
-    with st.expander("Method and confidence"):
+    with st.expander("📐 How this is measured, and how sure it is"):
         lo, hi = change["ci"]
+        tiles(
+            [
+                (f"Old arena ({old['seasons'][0]} to {old['seasons'][-1]})",
+                 f"{old['excess']:+.1f}", "home boost vs. league average"),
+                (f"Intuit Dome ({new['seasons'][0]} to {new['seasons'][-1]})",
+                 f"{new['excess']:+.1f}", "home boost vs. league average"),
+                ("Change after the move", f"{change['delta']:+.1f}", "points per 100 possessions"),
+                ("Resamples showing a gain", f"{change['p_increase']:.0%}",
+                 f"95% range {lo:+.1f} to {hi:+.1f}"),
+            ]
+        )  # fmt: skip
         st.markdown(
-            f"- **Data:** every regular-season NBA game since 2018-19 ({len(df) // 2:,} games), "
-            "pulled from stats.nba.com and checked with Pydantic before it's stored. Games at "
-            "neutral sites (bubble, Paris, Mexico City, NBA Cup in Vegas) are left out.\n"
-            "- **Home advantage** = net rating at home − net rating on the road, compared with "
-            "the league average for the same season.\n"
-            f"- **Confidence:** I resampled the Clippers' games 4,000 times. The change came out "
-            f"positive {change['p_increase']:.0%} of the time. The 95% range is {lo:+.1f} to "
-            f"{hi:+.1f}, which still touches zero, so the result isn't conclusive yet. "
-            "The data refreshes daily, so this firms up as more games are played.\n"
-            "- **Not controlled for:** roster changes, rest, schedule."
+            "- **Home boost** = point margin per 100 possessions at home minus on the road. "
+            "Same players both ways, so the gap comes from the building: crowd, travel, sleep.\n"
+            "- Each season is compared with that season's league average boost.\n"
+            f"- **Confidence:** 4,000 resamples of the games; {change['p_increase']:.0%} show an "
+            "increase. The range still touches zero, so it isn't conclusive yet.\n"
+            "- **Not controlled for:** roster changes, rest, schedule.\n"
+            f"- **Data:** every regular-season game since 2018-19 ({len(df) // 2:,} games), "
+            "validated before it's stored. Neutral-site games are left out."
         )
-
-    with st.expander("Season table"):
+        st.toggle(
+            "Leave out 2019-20 and 2020-21 (Orlando bubble and empty-arena seasons)",
+            key="exclude_limited",
+        )
         st.dataframe(
             ctx[["season", "arena", "home_net", "away_net", "edge", "league_mean", "rank"]]
-            .rename(
-                columns={
-                    "home_net": "Home margin",
-                    "away_net": "Road margin",
-                    "edge": "Home advantage",
-                    "league_mean": "League avg",
-                    "rank": "Rank",
-                }
-            )
+            .rename(columns={"home_net": "Home margin", "away_net": "Road margin",
+                             "edge": "Home boost", "league_mean": "League avg", "rank": "Rank"})
             .style.format(precision=1),
             hide_index=True,
             width="stretch",
-        )
+        )  # fmt: skip
 
-    with st.expander("Pipeline status"):
-        seasons = report.get("seasons", {})
-        rejected = sum(len(s.get("rejected", [])) for s in seasons.values())
-        st.write(
-            f"Last ingest finished **{report.get('finished_at', 'unknown')}** · "
-            f"{len(all_games):,} team-game rows across {all_games['season'].nunique()} seasons · "
-            f"{rejected} games rejected by validation"
-        )
-        st.json(report, expanded=False)
+# ---- The Wall --------------------------------------------------------------------------------
+COURT_SVG = """
+<div class="court"><svg viewBox="0 0 1000 430" role="img"
+ aria-label="Diagram of Intuit Dome: a basketball court with The Wall, a 51-row section of
+ fans, rising behind the left basket.">
+  <defs><linearGradient id="wall" x1="0" x2="1">
+    <stop offset="0" stop-color="{blue}" stop-opacity="0.95"/>
+    <stop offset="1" stop-color="{blue}" stop-opacity="0.55"/></linearGradient></defs>
+  {rows}
+  <text x="105" y="34" text-anchor="middle" font-size="34" font-weight="800"
+   fill="{ink}" letter-spacing="2">THE WALL</text>
+  <text x="105" y="400" text-anchor="middle" font-size="27" fill="{muted}">51 rows of fans</text>
+  <rect x="200" y="60" width="760" height="300" rx="6" fill="{floor}" stroke="{courtline}"
+   stroke-width="3"/>
+  <line x1="580" y1="60" x2="580" y2="360" stroke="{courtline}" stroke-width="3"/>
+  <circle cx="580" cy="210" r="45" fill="none" stroke="{courtline}" stroke-width="3"/>
+  <rect x="200" y="155" width="150" height="110" fill="{paint}" stroke="{courtline}"
+   stroke-width="3"/>
+  <circle cx="350" cy="210" r="45" fill="none" stroke="{courtline}" stroke-width="3"/>
+  <rect x="810" y="155" width="150" height="110" fill="{paint2}" stroke="{courtline}"
+   stroke-width="3"/>
+  <circle cx="810" cy="210" r="45" fill="none" stroke="{courtline}" stroke-width="3"/>
+  <path d="M200 90 L250 90 A140 140 0 0 1 250 330 L200 330" fill="none" stroke="{courtline}"
+   stroke-width="3"/>
+  <path d="M960 90 L910 90 A140 140 0 0 0 910 330 L960 330" fill="none" stroke="{courtline}"
+   stroke-width="3"/>
+  <circle cx="222" cy="210" r="9" fill="none" stroke="{hoop}" stroke-width="4"/>
+  <circle cx="938" cy="210" r="9" fill="none" stroke="{hoop}" stroke-width="4"/>
+  <circle cx="350" cy="210" r="7" fill="{ink}"/>
+  <text x="390" y="392" text-anchor="middle" font-size="27" fill="{ink}" font-weight="700">
+  Free throw toward The Wall</text>
+  <text x="390" y="420" text-anchor="middle" font-size="22" fill="{muted}">
+  visitors get this end for one half</text>
+  <text x="780" y="392" text-anchor="middle" font-size="27" fill="{ink}" font-weight="700">
+  Normal end</text>
+  <text x="780" y="420" text-anchor="middle" font-size="22" fill="{muted}">
+  the other half</text>
+</svg></div>
+"""
 
-# ---- The Wall: free throws -------------------------------------------------------------------
+
+def wall_rows() -> str:
+    out = []
+    for i in range(12):  # stylised: 12 bands stand in for 51 rows
+        y = 52 + i * 26
+        heads = "".join(
+            f'<circle cx="{40 + j * 22 + (i % 2) * 11}" cy="{y + 9}" r="7" '
+            f'fill="url(#wall)" opacity="{0.55 + 0.04 * (11 - i):.2f}"/>'
+            for j in range(7)
+        )
+        out.append(heads)
+    return "".join(out)
+
+
 with tab_wall:
-    ft = visitor_fts(all_games)
-    lac_ft = ft[ft["arena_team"] == LAC].assign(
-        arena=lambda d: d["season"].map(lambda s: INTUIT_DOME if s >= "2024-25" else SHARED_ARENA)
+    answer(
+        f"<b>{'Not really.' if not wall_real else 'Maybe a little.'}</b> The Wall is 51 rows "
+        "of Clippers fans behind one basket. Visitors shoot free throws there "
+        + (
+            "about as well as they do everywhere else."
+            if not wall_real
+            else "a bit worse than usual."
+        )
     )
-    lac_ft = lac_ft[lac_ft["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
+    court, stats = st.columns([3, 2], gap="large")
+    with court:
+        html(
+            COURT_SVG.format(
+                rows=wall_rows(), blue=PALETTE[INTUIT_DOME], ink=INK, muted=MUTED, line=LINE,
+                courtline="#7a6a52" if DARK else "#c4ab83",
+                floor="#2b2620" if DARK else "#f3e6d0", paint="#2a3a55" if DARK else "#dbe7f7",
+                paint2="#2b2620" if DARK else "#efe0c5", hoop=PALETTE[SHARED_ARENA],
+            )
+        )  # fmt: skip
+    with stats:
+        dome_pct = dome_ft["ftm"].sum() / dome_ft["fta"].sum()
+        usual_pct = dome_ft["expected"].sum() / dome_ft["fta"].sum()
+        tiles(
+            [
+                ("Visitors' FT% at Intuit Dome", f"{dome_pct:.1%}",
+                 f"{int(dome_ft['fta'].sum()):,} free throws"),
+                ("Their usual FT% elsewhere", f"{usual_pct:.1%}", "same players, other arenas"),
+            ]
+        )  # fmt: skip
+        tiles(
+            [
+                ("Difference", f"{wall_effect:+.1f} pts".replace("-", "−"),
+                 f"luck alone moves this ±{2 * noise / len(dome_ft) ** 0.5:.1f}"),
+            ]
+        )  # fmt: skip
 
-    def pooled(rows: pd.DataFrame) -> float:
-        return 100 * (rows["ftm"].sum() - rows["expected"].sum()) / rows["fta"].sum()
-
-    dome = lac_ft[lac_ft["arena"] == INTUIT_DOME]
-    league_ft = ft[ft["season"] >= season_label(ANALYSIS_FIRST_SEASON)]
-    # Binomial noise in one arena-season's FT% (visitors shoot ~78%), in pct. points.
-    noise = 100 * (0.78 * 0.22 / league_ft["fta"].mean()) ** 0.5
-    combined = pooled(dome)
-    clear = combined <= -2 * noise / len(dome) ** 0.5
-    by_season = "; ".join(
-        f"{r.season}: **{r.diff:+.1f}** ({ordinal(r.rank)} of 30)" for r in dome.itertuples()
-    )
-    st.subheader("Does The Wall make opponents miss free throws?")
-    st.markdown(
-        f"**{'Possibly.' if clear else 'Not in a way that lasts.'}** The Wall is a 51-row "
-        "section of Clippers fans behind one basket. Here is how visitors shot free throws at "
-        "Intuit Dome compared with their own FT% everywhere else (negative = worse; rank 1 = "
-        f"toughest arena that season). {by_season}. All seasons combined: "
-        f"**{combined:+.1f}** points" + ("." if clear else ", within what luck alone produces.")
-    )
+    st.subheader("How hard is each arena for visiting free-throw shooters?")
     st.caption(
-        "Each gray dot is one NBA arena that season. Its height is how visitors shot free "
-        "throws there compared with their own FT% in all their other games. Below zero means "
-        "visitors shot worse than usual. The number is the Clippers' arena rank (#1 = hardest "
-        "place for visitors)."
+        "Visitors' FT% in each arena compared with their own FT% everywhere else. "
+        "Bars to the left = visitors miss more there. Pick a season with the slider."
     )
-    others = (
-        alt.Chart(league_ft[league_ft["arena_team"] != LAC])
-        .mark_circle(size=45, color=PALETTE["ink"], opacity=0.35)
+    seasons_all = sorted(ft["season"].unique())
+    season_pick = st.select_slider(
+        "Season", options=seasons_all, value=seasons_all[-2] if in_progress else seasons_all[-1]
+    )
+    one = ft[ft["season"] == season_pick].assign(
+        who=lambda d: d["arena_team"].map(
+            lambda t: ("Clippers · " + arena_of(season_pick)) if t == LAC else "Other arenas"
+        )
+    )
+    lac_row = one[one["arena_team"] == LAC].iloc[0]
+    who_scale = alt.Scale(
+        domain=["Clippers · " + arena_of(season_pick), "Other arenas"],
+        range=[PALETTE[arena_of(season_pick)], "#5c5b56" if DARK else "#c9c7bf"],
+    )
+    abars = (
+        alt.Chart(one)
+        .mark_bar(cornerRadiusEnd=3)
         .encode(
-            x=SEASON_AXIS,
-            y=alt.Y("diff:Q", title="Visitors' FT% vs. their usual (pct. points)"),
+            y=alt.Y("arena_team:N", title=None, sort="x",
+                    axis=alt.Axis(labelColor=MUTED, labelFontSize=11, labelOverlap=False)),
+            x=alt.X("diff:Q", title="Visitors' FT% vs. their usual (pct. points)"),
+            color=alt.Color("who:N", scale=who_scale, legend=alt.Legend(title=None, orient="top")),
             tooltip=[
-                alt.Tooltip("season:N", title="Season"),
                 alt.Tooltip("arena_team:N", title="Home team"),
-                alt.Tooltip("diff:Q", title="Visitors vs. usual", format="+.1f"),
+                alt.Tooltip("ft_pct:Q", title="Visitors' FT% there", format=".1%"),
+                alt.Tooltip("diff:Q", title="vs. their usual", format="+.1f"),
+                alt.Tooltip("rank:Q", title="Rank (1 = toughest)"),
+                alt.Tooltip("fta:Q", title="Visitor free throws"),
             ],
         )
+    )  # fmt: skip
+    zero_x = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color=MUTED).encode(x="x:Q")
+    chart(abars + zero_x, 640)
+    st.caption(
+        f"In {season_pick} the Clippers' arena ranked **{ordinal(int(lac_row['rank']))} of 30** "
+        f"({lac_row['diff']:+.1f}). One season bounces around by about ±{noise:.1f} from luck "
+        "alone, so the seasons together are what count."
     )
-    lac_base = alt.Chart(lac_ft.assign(rank_label="#" + lac_ft["rank"].astype(str))).encode(
-        x=SEASON_AXIS, y="diff:Q"
-    )
-    lac_dots = lac_base.mark_circle(size=180, opacity=1, stroke="white", strokeWidth=2).encode(
-        color=alt.Color("arena:N", scale=ARENA_SCALE, legend=alt.Legend(title=None, orient="top")),
-        tooltip=[
-            alt.Tooltip("season:N", title="Season"),
-            alt.Tooltip("arena:N", title="Clippers arena"),
-            alt.Tooltip("ft_pct:Q", title="Visitors' FT%", format=".1%"),
-            alt.Tooltip("diff:Q", title="Visitors vs. usual", format="+.1f"),
-            alt.Tooltip("rank:Q", title="Rank (1 = hardest)"),
-            alt.Tooltip("fta:Q", title="Visitor FTA"),
-        ],
-    )
-    lac_ranks = lac_base.mark_text(dx=18, align="left", fontSize=12, color=PALETTE["ink"]).encode(
-        text="rank_label:N"
-    )
-    zero = alt.Chart(pd.DataFrame({"y": [0]})).mark_rule(color=PALETTE["ink"], opacity=0.4)
-    st.altair_chart(
-        (zero.encode(y="y:Q") + others + lac_dots + lac_ranks).properties(height=360),
-        width="stretch",
-    )
-    st.markdown(
-        f"**Why it bounces around:** visitors take about {league_ft['fta'].mean():.0f} free "
-        f"throws in an arena per season. At that sample size, luck alone moves an arena's "
-        f"number by about ±{noise:.1f} points in a typical season, about the size of the "
-        "swings in the chart. One season can look like a Wall effect by luck alone, so the "
-        "seasons together are what count."
-    )
-    with st.expander("Why not compare the two baskets directly?"):
-        st.markdown(
-            "That's the sharper test: free throws at the Wall end vs. the other end. But the "
-            "visiting team chooses which basket to attack in each half, so the Wall end "
-            "changes from game to game. The public play-by-play data doesn't record which "
-            "end a shot was at. Instead this measures the whole arena against every other "
-            "arena, which includes the Wall's effect at one end.\n\n"
-            "An early-season study ([Above the Break, Dec 2024]"
-            "(https://abovethebreak.substack.com/p/ballmers-wall-is-the-intuit-dome)) looked "
-            "at the first 12 home games and found a small effect it called largely "
-            "indistinguishable from normal home-court variance. Two full seasons point the "
-            "same way."
+
+    # ---- 1st half vs 2nd half
+    half_rows = load_halves()
+    st.subheader("1st half vs. 2nd half")
+    if half_rows.empty:
+        st.info("No half-by-half data yet. Run `clippers-halves` to fetch it.")
+    else:
+        st.caption(
+            "Teams switch baskets at halftime, so visitors face The Wall for only one half. "
+            "If The Wall works, one half should be clearly lower at Intuit Dome."
+        )
+        by_season = analysis.ft_by_half(half_rows, by="season")
+        by_season["arena"] = by_season["season"].map(arena_of)
+        hl = pd.concat(
+            [
+                by_season.assign(half=half, pct=by_season[f"opp_pct_{p}"],
+                                 fta=by_season[f"opp_fta_{p}"])
+                for p, half in (("h1", "1st half"), ("h2", "2nd half"))
+            ]
+        )  # fmt: skip
+        hl["season_lbl"] = hl["season"] + "  ·  " + hl["arena"].str.replace(" Arena", "")
+        order = list(by_season["season"] + "  ·  " + by_season["arena"].str.replace(" Arena", ""))
+        hy = alt.Y("season_lbl:N", title=None, sort=order,
+                   axis=alt.Axis(labelColor=INK, labelFontSize=12, labelLimit=260))  # fmt: skip
+        dome_rows = (
+            alt.Chart(by_season[by_season["arena"] == INTUIT_DOME].assign(
+                season_lbl=lambda d: d["season"] + "  ·  Intuit Dome"))
+            .mark_rect(color=PALETTE[INTUIT_DOME], opacity=0.08)
+            .encode(y=hy)
+        )  # fmt: skip
+        stems = (
+            alt.Chart(by_season.assign(season_lbl=order))
+            .mark_rule(color=MUTED, strokeWidth=2)
+            .encode(
+                y=hy,
+                x=alt.X("opp_pct_h1:Q", scale=alt.Scale(domain=[0.64, 0.86])),
+                x2="opp_pct_h2:Q",
+            )
+        )
+        hdots = (
+            alt.Chart(hl)
+            .mark_circle(size=170, opacity=1, stroke=SURFACE, strokeWidth=2)
+            .encode(
+                y=hy,
+                x=alt.X("pct:Q", title="Visitors' FT%", axis=alt.Axis(format="%"),
+                        scale=alt.Scale(domain=[0.64, 0.86])),
+                color=alt.Color("half:N", scale=HALF_SCALE,
+                                legend=alt.Legend(title=None, orient="top")),
+                tooltip=[
+                    alt.Tooltip("season:N", title="Season"),
+                    alt.Tooltip("arena:N", title="Arena"),
+                    alt.Tooltip("half:N", title="Half"),
+                    alt.Tooltip("pct:Q", title="Visitors' FT%", format=".1%"),
+                    alt.Tooltip("fta:Q", title="Free throws"),
+                    alt.Tooltip("games:Q", title="Games"),
+                ],
+            )
+        )  # fmt: skip
+        chart(dome_rows + stems + hdots, 380)
+        dome_s = by_season[by_season["arena"] == INTUIT_DOME]
+        full = dome_s[dome_s["games"] >= 30]
+        swings = ", ".join(
+            f"{r.season}: {'2nd' if r.opp_swing < 0 else '1st'} half lower by "
+            f"{abs(r.opp_swing):.1f}"
+            for r in full.itertuples()
+        )
+        st.caption(
+            f"At Intuit Dome: {swings}. The seasons point opposite ways, so overall the halves "
+            "even out. That could be luck, or visitors facing The Wall in a different half each "
+            "season; box scores don't record which end a team shot at."
         )
 
-    # ---- Game by game ----------------------------------------------------------------------------
-    st.divider()
-    st.subheader("Game by game: visitors' free throws at the Clippers' arena")
+    with st.expander("📐 How this is measured"):
+        st.markdown(
+            "- Each visiting team's FT% in an arena is compared with **its own** FT% in all its "
+            "other games that season, so good and bad shooting teams cancel out.\n"
+            f"- Visitors take about {ft['fta'].mean():.0f} free throws per arena per season; at "
+            f"that sample size luck alone moves one season by about ±{noise:.1f} points.\n"
+            "- Half-by-half numbers come from Basketball Reference box scores for every "
+            "Clippers home game since 2018-19, each checked against the full-game totals.\n"
+            "- An early-season study ([Above the Break, Dec 2024]"
+            "(https://abovethebreak.substack.com/p/ballmers-wall-is-the-intuit-dome)) found a "
+            "small effect it called largely indistinguishable from normal home-court variance."
+        )
+
+# ---- Every home game -------------------------------------------------------------------------
+with tab_games:
     by_game = analysis.opponent_fts_by_game(df)
     half_rows = load_halves()
     if not half_rows.empty:
@@ -412,310 +643,219 @@ with tab_wall:
     else:
         by_game = by_game.assign(opp_ftm_h1=pd.NA, opp_fta_h1=pd.NA, opp_ftm_h2=pd.NA,
                                  opp_fta_h2=pd.NA)  # fmt: skip
+
+    c1, c2 = st.columns([1, 2])
     seasons_desc = sorted(by_game["season"].unique(), reverse=True)
-    pick = st.selectbox("Season", seasons_desc, index=0, key="ft_game_season")
+    pick = c1.selectbox("Season", seasons_desc, index=0, key="ft_game_season")
     games_s = by_game[by_game["season"] == pick].copy()
-    games_s["label"] = games_s["game_date"].dt.strftime("%b %d") + " " + games_s["opponent"]
-    games_s["result"] = games_s["win"].map({True: "W", False: "L"})
-    worse = int((games_s["diff"] < 0).sum())
-    st.markdown(
-        f"In {pick} at {games_s['arena'].iloc[0]}, visitors shot below their usual FT% in "
-        f"**{worse} of {len(games_s)}** games. Together they made "
-        f"**{games_s['opp_ftm'].sum() / games_s['opp_fta'].sum():.1%}** there, against "
-        f"**{(games_s['season_pct'] * games_s['opp_fta']).sum() / games_s['opp_fta'].sum():.1%}"
-        "** you'd expect from their own season averages."
-    )
-    st.caption(
-        "Each dot is the visitors' FT% that night; the gray tick is their FT% in all their "
-        "other games that season. A line going down from the tick means they shot worse than "
-        "usual. Early in a season the usual FT% rests on only a few games."
-    )
-    order = list(games_s["label"])
-    gx = alt.X("label:N", title=None, sort=order, axis=alt.Axis(labelAngle=-60))
-    gtip = [
-        alt.Tooltip("label:N", title="Game"),
-        alt.Tooltip("result:N", title="Clippers"),
-        alt.Tooltip("opp_ftm:Q", title="Visitor FTM"),
-        alt.Tooltip("opp_fta:Q", title="Visitor FTA"),
-        alt.Tooltip("ft_pct:Q", title="Visitor FT% that night", format=".1%"),
-        alt.Tooltip("season_pct:Q", title="Their usual FT%", format=".1%"),
-        alt.Tooltip("diff:Q", title="vs. usual (pct. points)", format="+.1f"),
-    ]
-    gbase = alt.Chart(games_s).encode(x=gx, tooltip=gtip)
-    stems = gbase.mark_rule(color=PALETTE["ink"], opacity=0.5).encode(
-        y=alt.Y("season_pct:Q", title="Visitors' FT%", axis=alt.Axis(format="%"),
-                scale=alt.Scale(zero=False)),
-        y2="ft_pct:Q",
-    )  # fmt: skip
-    ticks = gbase.mark_tick(color=PALETTE["ink"], thickness=2, size=14).encode(y="season_pct:Q")
-    nights = gbase.mark_circle(size=90, opacity=1, color=PALETTE[INTUIT_DOME]).encode(y="ft_pct:Q")
-    st.altair_chart((stems + ticks + nights).properties(height=320), width="stretch")
-
-    def ft_cell(m, a) -> str:
-        if pd.isna(a):
-            return "–"
-        return f"{int(m)}/{int(a)} ({m / a:.0%})" if a else "0/0"
-
-    table = pd.DataFrame(
-        {
-            "Date": games_s["game_date"].dt.strftime("%Y-%m-%d"),
-            "Opponent": games_s["opponent"],
-            "Clippers": games_s["result"],
-            "Visitor FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm"], games_s["opp_fta"],
-                                                          strict=True)],
-            "Their usual FT%": games_s["season_pct"],
-            "vs. usual (pts)": games_s["diff"],
-            "1st half FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm_h1"],
-                                                           games_s["opp_fta_h1"], strict=True)],
-            "2nd half FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm_h2"],
-                                                           games_s["opp_fta_h2"], strict=True)],
-        }
-    ).iloc[::-1]  # fmt: skip
-    st.dataframe(
-        table.style.format({"Their usual FT%": "{:.1%}", "vs. usual (pts)": "{:+.1f}"}),
-        hide_index=True,
-        width="stretch",
-    )
-
-    # ---- 1st half vs. 2nd half -------------------------------------------------------------------
-    st.divider()
-    st.subheader("1st half vs. 2nd half")
-    if half_rows.empty:
-        st.info("No half-by-half data yet. Run `clippers-halves` to fetch it.")
+    teams = sorted(games_s["opponent"].unique())
+    chosen = c2.multiselect("Opponents (leave empty for all)", teams, key="ft_game_teams")
+    if chosen:
+        games_s = games_s[games_s["opponent"].isin(chosen)]
+    if games_s.empty:
+        st.info("No games match.")
     else:
-        arenas = analysis.ft_by_half(half_rows, by="arena").set_index("arena")
-        if INTUIT_DOME in arenas.index and SHARED_ARENA in arenas.index:
-            dome_h, old_h = arenas.loc[INTUIT_DOME], arenas.loc[SHARED_ARENA]
-            gap = dome_h["opp_swing"] - old_h["opp_swing"]
-            gap_noise = (dome_h["opp_noise"] ** 2 + old_h["opp_noise"] ** 2) ** 0.5
-            lower = "1st" if dome_h["opp_swing"] > 0 else "2nd"
-            stands_out = abs(gap) > 2 * gap_noise
-            st.markdown(
-                "Teams switch baskets at halftime, so visitors shoot free throws in front of "
-                "The Wall in one half and at the other end in the other. If The Wall works, "
-                "visitors' FT% should split between the halves at Intuit Dome **more than "
-                "it did at Crypto.com Arena**, where neither end had a Wall.\n\n"
-                f"At Intuit Dome visitors shot **{dome_h['opp_pct_h1']:.1%}** in the 1st half "
-                f"and **{dome_h['opp_pct_h2']:.1%}** in the 2nd ({lower} half lower, "
-                f"{abs(dome_h['opp_swing']):.1f} points apart). At Crypto.com Arena it was "
-                f"{old_h['opp_pct_h1']:.1%} and {old_h['opp_pct_h2']:.1%}. "
-                + (
-                    f"**The Intuit Dome split is {gap:+.1f} points bigger than the old "
-                    f"arena's, more than luck alone usually produces (±{2 * gap_noise:.1f}).**"
-                    if stands_out
-                    else f"The difference between the two arenas' splits is {gap:+.1f} "
-                    f"points, **within what luck alone produces** (±{2 * gap_noise:.1f})."
-                )
-            )
-            dome_seasons = analysis.ft_by_half(half_rows, by="season")
-            dome_seasons = dome_seasons[dome_seasons["season"] >= "2024-25"]
-            st.markdown(
-                "Season by season at Intuit Dome: "
-                + "; ".join(
-                    f"{r.season}: {r.opp_pct_h1:.1%} 1st half, {r.opp_pct_h2:.1%} 2nd half "
-                    f"({r.games} games)"
-                    for r in dome_seasons.itertuples()
-                )
-                + ". If the seasons point in opposite directions, the pooled numbers above "
-                "cancel out; that could be luck, or visitors facing The Wall in a different "
-                "half from one season to the next. The box scores don't say which end each "
-                "team shot at."
-            )
-        long_h = pd.concat(
+        games_s["label"] = games_s["game_date"].dt.strftime("%b %d") + " " + games_s["opponent"]
+        games_s["result"] = games_s["win"].map({True: "W", False: "L"})
+        games_s["outcome"] = games_s["diff"].map(
+            lambda d: "Missed more than usual" if d < 0 else "Shot as well or better"
+        )
+        worse = int((games_s["diff"] < 0).sum())
+        n_wins = int((games_s["result"] == "W").sum())
+        made = games_s["opp_ftm"].sum() / games_s["opp_fta"].sum()
+        usual = (games_s["season_pct"] * games_s["opp_fta"]).sum() / games_s["opp_fta"].sum()
+        tiles(
             [
-                pd.DataFrame(
-                    {
-                        "arena": arenas.index,
-                        "who": who,
-                        "half": half,
-                        "pct": arenas[f"{side}_pct_{part}"].to_numpy(),
-                        "fta": arenas[f"{side}_fta_{part}"].to_numpy(),
-                        "games": arenas["games"].to_numpy(),
-                    }
-                )
-                for side, who in (("opp", "Visitors"), ("lac", "Clippers"))
-                for part, half in (("h1", "1st half"), ("h2", "2nd half"))
+                ("Home games", f"{len(games_s)}",
+                 f"{n_wins} win{'' if n_wins == 1 else 's'} at {games_s['arena'].iloc[0]}"),
+                ("Visitors missed more than usual", f"{worse} of {len(games_s)}", "games"),
+                ("Visitors' FT% here", f"{made:.1%}", f"vs. {usual:.1%} usual"),
             ]
-        )
-        hcols = st.columns(2)
-        for col, who in zip(hcols, ("Visitors", "Clippers"), strict=True):
-            sub = long_h[long_h["who"] == who]
-            hbars = (
-                alt.Chart(sub)
-                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
-                .encode(
-                    x=alt.X("arena:N", title=None, sort=[SHARED_ARENA, INTUIT_DOME],
-                            axis=alt.Axis(labelAngle=0)),
-                    xOffset=alt.XOffset("half:N", sort=["1st half", "2nd half"]),
-                    y=alt.Y("pct:Q", title=f"{who}' FT%", axis=alt.Axis(format="%"),
-                            scale=alt.Scale(domain=[0.6, 0.85], clamp=True)),
-                    color=alt.Color("half:N", scale=HALF_SCALE,
-                                    legend=alt.Legend(title=None, orient="top")),
-                    tooltip=[
-                        alt.Tooltip("arena:N", title="Arena"),
-                        alt.Tooltip("half:N", title="Half"),
-                        alt.Tooltip("pct:Q", title="FT%", format=".1%"),
-                        alt.Tooltip("fta:Q", title="FTA", format=","),
-                        alt.Tooltip("games:Q", title="Games"),
-                    ],
-                )
-            )  # fmt: skip
-            hlabels = hbars.mark_text(dy=-8, fontSize=12).encode(
-                text=alt.Text("pct:Q", format=".1%"), color=alt.value(PALETTE["ink"])
-            )
-            with col:
-                st.markdown(f"**{who}** at the Clippers' home arena")
-                st.altair_chart((hbars + hlabels).properties(height=280), width="stretch")
+        )  # fmt: skip
         st.caption(
-            "The Clippers' own split is a reference: they shoot at the opposite basket from "
-            "the visitors in each half, and things like late-game fouling of poor shooters "
-            "change 2nd-half FT% in every arena. Overtime free throws are left out."
+            "Each dot is the visitors' FT% that night. The gray tick is their usual FT% (all "
+            "their other games that season). Hover for details."
         )
-        with st.expander("By season"):
-            seasons_h = analysis.ft_by_half(half_rows, by="season")
-            seasons_h["arena"] = seasons_h["season"].map(
-                lambda s: INTUIT_DOME if s >= "2024-25" else SHARED_ARENA
-            )
-            st.dataframe(
-                seasons_h[["season", "arena", "games", "opp_pct_h1", "opp_pct_h2", "opp_swing",
-                           "opp_noise", "lac_pct_h1", "lac_pct_h2"]]
-                .rename(columns={
-                    "season": "Season", "arena": "Arena", "games": "Games",
-                    "opp_pct_h1": "Visitors 1st half", "opp_pct_h2": "Visitors 2nd half",
-                    "opp_swing": "Visitors 2nd − 1st (pts)", "opp_noise": "± luck (1 s.e.)",
-                    "lac_pct_h1": "Clippers 1st half", "lac_pct_h2": "Clippers 2nd half",
-                })
-                .style.format({
-                    "Visitors 1st half": "{:.1%}", "Visitors 2nd half": "{:.1%}",
-                    "Clippers 1st half": "{:.1%}", "Clippers 2nd half": "{:.1%}",
-                    "Visitors 2nd − 1st (pts)": "{:+.1f}", "± luck (1 s.e.)": "{:.1f}",
-                }),
-                hide_index=True,
-                width="stretch",
-            )  # fmt: skip
-            st.markdown(
-                "Half-by-half free throws come from Basketball Reference box scores for every "
-                "Clippers home game since 2018-19. Each game is checked against the full-game "
-                "box score (1st half + 2nd half + overtime must add up) before it's stored."
-            )
+        gx = alt.X("label:N", title=None, sort=list(games_s["label"]),
+                   axis=alt.Axis(labelAngle=-60, labelColor=MUTED))  # fmt: skip
+        gtip = [
+            alt.Tooltip("label:N", title="Game"),
+            alt.Tooltip("result:N", title="Clippers"),
+            alt.Tooltip("opp_ftm:Q", title="Visitors made"),
+            alt.Tooltip("opp_fta:Q", title="Visitors attempted"),
+            alt.Tooltip("ft_pct:Q", title="Visitors' FT% that night", format=".1%"),
+            alt.Tooltip("season_pct:Q", title="Their usual FT%", format=".1%"),
+            alt.Tooltip("diff:Q", title="vs. usual (pct. points)", format="+.1f"),
+        ]
+        outcome_scale = alt.Scale(
+            domain=["Missed more than usual", "Shot as well or better"],
+            range=[PALETTE[INTUIT_DOME], PALETTE[SHARED_ARENA]],
+        )
+        gb = alt.Chart(games_s).encode(x=gx, tooltip=gtip)
+        gstems = gb.mark_rule(color=MUTED, opacity=0.6, strokeWidth=2).encode(
+            y=alt.Y("season_pct:Q", title="Visitors' FT%", axis=alt.Axis(format="%"),
+                    scale=alt.Scale(zero=False)),
+            y2="ft_pct:Q",
+        )  # fmt: skip
+        gticks = gb.mark_tick(color=MUTED, thickness=3, size=16).encode(y="season_pct:Q")
+        gdots = gb.mark_circle(size=130, opacity=1, stroke=SURFACE, strokeWidth=2).encode(
+            y="ft_pct:Q",
+            color=alt.Color("outcome:N", scale=outcome_scale,
+                            legend=alt.Legend(title=None, orient="top")),
+        )  # fmt: skip
+        chart(gstems + gticks + gdots, 340)
+
+        def ft_cell(m, a) -> str:
+            if pd.isna(a):
+                return "–"
+            return f"{int(m)}/{int(a)}  ({m / a:.0%})" if a else "0/0"
+
+        table = pd.DataFrame(
+            {
+                "Date": games_s["game_date"].dt.date,
+                "Opponent": games_s["opponent"],
+                "Clippers": games_s["result"],
+                "Visitors' FT%": 100 * games_s["ft_pct"],
+                "Their usual": 100 * games_s["season_pct"],
+                "vs. usual": games_s["diff"],
+                "Made / attempted": [ft_cell(m, a) for m, a in
+                                     zip(games_s["opp_ftm"], games_s["opp_fta"], strict=True)],
+                "1st half": [ft_cell(m, a) for m, a in
+                             zip(games_s["opp_ftm_h1"], games_s["opp_fta_h1"], strict=True)],
+                "2nd half": [ft_cell(m, a) for m, a in
+                             zip(games_s["opp_ftm_h2"], games_s["opp_fta_h2"], strict=True)],
+            }
+        ).iloc[::-1]  # fmt: skip
+        st.dataframe(
+            table,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Visitors' FT%": st.column_config.ProgressColumn(
+                    format="%.1f%%", min_value=0.0, max_value=100.0
+                ),
+                "Their usual": st.column_config.NumberColumn(format="%.1f%%"),
+                "vs. usual": st.column_config.NumberColumn(
+                    format="%+.1f", help="Percentage points; negative = visitors missed more"
+                ),
+            },
+        )
 
 # ---- Other new arenas ------------------------------------------------------------------------
 with tab_moves:
-    moves = arena_moves(all_games)
-    placebo = placebo_changes(all_games)
-    st.subheader("Do new arenas usually boost home advantage?")
-    others_moved = moves[moves["team"] != LAC] if not moves.empty else moves
-    if others_moved.empty or placebo.empty or LAC not in set(moves["team"]):
+    if not have_moves:
         st.info("Needs seasons back to 2013-14. Run `clippers-ingest` to backfill them.")
     else:
-        lac_move = moves.set_index("team").loc[LAC]
         lo, hi = placebo["delta"].quantile([0.05, 0.95])
-        share = (placebo["delta"] >= lac_move["delta"]).mean()
-        inside = others_moved["delta"].between(lo, hi).sum()
-        verdict = (
-            "The Clippers' jump is unusual."
-            if share <= 0.1
-            else "The Clippers' jump is within the normal range."
+        answer(
+            "<b>No, a jump like this is rare.</b> Four other teams opened new arenas since 2016. "
+            f"None gained more than {others_moved['delta'].max():+.1f}. "
+            f"The Clippers gained <b>{lac_move['delta']:+.1f}</b>."
         )
-        st.markdown(
-            f"**{verdict}** {len(others_moved)} other teams moved into newly built arenas in "
-            "the same metro area during this period. Their home advantage changed by "
-            + ", ".join(f"{r.team} {r.delta:+.1f}" for r in others_moved.itertuples())
-            + f". The Clippers' change was **{lac_move['delta']:+.1f}**. "
-            f"For teams that didn't move, a change at least that big happened "
-            f"**{share:.0%}** of the time."
-        )
-        st.caption(
-            "Each row compares a team's home advantage (vs. the league average) in the 3 "
-            "seasons before its move with its first 2 seasons in the new building, skipping "
-            "2020-21 (no fans). Lines show the 95% range. The gray band is where 90% of "
-            "changes fall for teams that didn't move."
-        )
+        tiles(
+            [
+                ("Clippers' change", f"{lac_move['delta']:+.1f}", "pts per 100 possessions"),
+                ("Average for other new arenas", f"{others_moved['delta'].mean():+.1f}",
+                 f"{len(others_moved)} teams"),
+                ("Chance of a jump this big", f"{share_bigger:.0%}",
+                 f"from {len(placebo):,} seasons with no move"),
+            ]
+        )  # fmt: skip
         rows = moves.assign(
-            label=moves["team"]
-            + " · "
-            + moves["new_arena"]
-            + " ("
-            + moves["first_new_season"]
+            label=moves["team"] + " → " + moves["new_arena"] + " (" + moves["first_new_season"]
             + ")",
             who=moves["team"].map(lambda t: "Clippers" if t == LAC else "Other teams"),
-        ).sort_values("first_new_season")
+        ).sort_values("delta")  # fmt: skip
+        st.subheader("Change in home-court boost after moving into a new arena")
+        st.caption(
+            "3 seasons before the move vs. the first 2 in the new building. The gray band is "
+            "where 90% of changes land for teams that didn't move. Hover for details."
+        )
         who = alt.Color(
             "who:N",
-            scale=alt.Scale(
-                domain=["Clippers", "Other teams"], range=[PALETTE[INTUIT_DOME], PALETTE["ink"]]
-            ),
+            scale=alt.Scale(domain=["Clippers", "Other teams"],
+                            range=[PALETTE[INTUIT_DOME], "#6b6a66" if not DARK else "#8a8983"]),
             legend=None,
-        )
-        y = alt.Y("label:N", title=None, sort=list(rows["label"]), axis=alt.Axis(labelLimit=320))
+        )  # fmt: skip
+        y = alt.Y("label:N", title=None, sort=list(rows["label"]),
+                  axis=alt.Axis(labelLimit=340, labelColor=INK, labelFontSize=13))  # fmt: skip
         tooltip = [
             alt.Tooltip("label:N", title="Move"),
             alt.Tooltip("old_arena:N", title="From"),
             alt.Tooltip("before_seasons:N", title="Before"),
             alt.Tooltip("after_seasons:N", title="After"),
-            alt.Tooltip("before_excess:Q", title="Before (vs. league)", format="+.1f"),
-            alt.Tooltip("after_excess:Q", title="After (vs. league)", format="+.1f"),
             alt.Tooltip("delta:Q", title="Change", format="+.1f"),
-            alt.Tooltip("p_increase:Q", title="Resamples with an increase", format=".0%"),
+            alt.Tooltip("ci_low:Q", title="95% low", format="+.1f"),
+            alt.Tooltip("ci_high:Q", title="95% high", format="+.1f"),
         ]
         band = (
             alt.Chart(pd.DataFrame({"lo": [lo], "hi": [hi]}))
-            .mark_rect(color=PALETTE["ink"], opacity=0.15)
+            .mark_rect(color=MUTED, opacity=0.15)
             .encode(x="lo:Q", x2="hi:Q")
         )
-        zero_x = alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color=PALETTE["ink"], opacity=0.5)
-        base = alt.Chart(rows).encode(y=y, color=who, tooltip=tooltip)
-        whiskers = base.mark_rule(strokeWidth=2).encode(
-            x=alt.X("ci_low:Q", title="Change in home advantage (pts per 100 possessions)"),
-            x2="ci_high:Q",
+        mbars = (
+            alt.Chart(rows)
+            .mark_bar(height=26, cornerRadiusEnd=4)
+            .encode(y=y, x=alt.X("delta:Q", title="Change (pts per 100 possessions)",
+                          axis=alt.Axis(tickCount=8)),
+                    color=who, tooltip=tooltip)
+        )  # fmt: skip
+        label_enc = {"text": alt.Text("delta:Q", format="+.1f"), "color": alt.value(INK)}
+        pos_labels = (
+            mbars.transform_filter("datum.delta >= 0")
+            .mark_text(align="left", dx=6, fontSize=13, fontWeight="bold")
+            .encode(**label_enc)
         )
-        points = base.mark_circle(size=160, opacity=1, stroke="white", strokeWidth=2).encode(
-            x="delta:Q"
+        neg_labels = (
+            mbars.transform_filter("datum.delta < 0")
+            .mark_text(align="right", dx=-6, fontSize=13, fontWeight="bold")
+            .encode(**label_enc)
         )
-        st.altair_chart(
-            (band + zero_x.encode(x="x:Q") + whiskers + points).properties(height=260),
-            width="stretch",
-        )
-        st.markdown(
-            f"**How to read it:** the gray band is the range you'd expect from chance. "
-            f"{inside} of the {len(others_moved)} other moves land inside it. The Clippers' "
-            f"dot is {'outside' if not lo <= lac_move['delta'] <= hi else 'inside'} it."
-        )
-        with st.expander("Method"):
-            st.markdown(
-                "- **Comparison:** for each team, home advantage minus the league average in "
-                "the 3 seasons before the move, then the same for its first 2 seasons in the "
-                "new arena. Subtracting the league average each season makes this a "
-                "difference-in-differences against the rest of the league.\n"
-                f"- **Chance baseline:** the same calculation for every team at every season "
-                f"where nothing happened ({len(placebo):,} team-seasons). It shows how much "
-                "home advantage moves between two windows by luck and roster churn alone.\n"
-                "- **Why the Clippers' number differs from the first tab:** this tab uses "
-                "the same 3-before/2-after window for every team, so the Clippers' before "
-                f"window is {lac_move['before_seasons']} rather than 2018-19 onward.\n"
-                "- **Left out:** the Nets' 2012 move to Brooklyn (a new city, not just a new "
-                "building) and 2020-21 (no fans)."
+        band_note = (
+            alt.Chart(pd.DataFrame({"x": [(lo + hi) / 2]}))
+            .mark_text(dy=-6, fontSize=11, color=MUTED)
+            .encode(
+                x="x:Q", y=alt.value(0), text=alt.value("normal range for teams that didn't move")
             )
-        st.dataframe(
-            rows[
-                ["team", "old_arena", "new_arena", "before_seasons", "after_seasons",
-                 "before_excess", "after_excess", "delta", "ci_low", "ci_high"]
-            ]
-            .rename(
-                columns={
+        )
+        chart(band + band_note + mbars + pos_labels + neg_labels + zero_x, 300)
+        with st.expander("📐 How this is measured"):
+            st.markdown(
+                "- For each team: home boost minus the league average, 3 seasons before the "
+                "move vs. the first 2 seasons after, skipping 2020-21 (no fans).\n"
+                f"- **Chance baseline:** the same calculation for every team at every season "
+                f"where nothing happened ({len(placebo):,} comparisons).\n"
+                "- This uses the same window for every team, so the Clippers' number differs "
+                "slightly from the Home advantage tab.\n"
+                "- Only new buildings count, not renamed ones."
+            )
+            st.dataframe(
+                rows[["team", "old_arena", "new_arena", "before_seasons", "after_seasons",
+                      "before_excess", "after_excess", "delta", "ci_low", "ci_high"]]
+                .rename(columns={
                     "team": "Team", "old_arena": "From", "new_arena": "To",
                     "before_seasons": "Before", "after_seasons": "After",
                     "before_excess": "Before (vs. league)", "after_excess": "After (vs. league)",
                     "delta": "Change", "ci_low": "95% low", "ci_high": "95% high",
-                }
-            )
-            .style.format(precision=1),
-            hide_index=True,
-            width="stretch",
-        )  # fmt: skip
+                })
+                .style.format(precision=1),
+                hide_index=True,
+                width="stretch",
+            )  # fmt: skip
 
+# ---- Footer ----------------------------------------------------------------------------------
+st.divider()
+with st.expander("⚙️ Data pipeline status"):
+    seasons = report.get("seasons", {})
+    rejected = sum(len(s.get("rejected", [])) for s in seasons.values())
+    st.write(
+        f"Last ingest finished **{report.get('finished_at', 'unknown')}** · "
+        f"{len(all_games):,} team-game rows across {all_games['season'].nunique()} seasons · "
+        f"{rejected} games rejected by validation"
+    )
+    st.json(report, expanded=False)
 st.caption(
-    "Data: stats.nba.com via nba_api (2018-19 on, with Basketball Reference as a fallback) "
-    "and Basketball Reference (2013-14 to 2017-18), refreshed daily by a GitHub Actions job. "
+    "Data: stats.nba.com via nba_api and Basketball Reference, refreshed daily. "
+    "Not affiliated with the NBA or the LA Clippers. "
     "Source: github.com/JayJaden06/clippers-home-court"
 )
