@@ -18,6 +18,11 @@ import streamlit as st
 # Import the package from this checkout, not a previously installed copy: Streamlit Cloud
 # only reinstalls requirements when requirements.txt changes, so an installed copy can lag.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# Streamlit Cloud pulls new commits into the running process: app.py reruns, but modules
+# imported on an earlier run stay cached in sys.modules with the old code. Drop them so
+# every run imports the package as it is on disk (it's small and quick to import).
+for _name in [m for m in sys.modules if m.split(".")[0] == "clippers_home_court"]:
+    del sys.modules[_name]
 
 from clippers_home_court import LAC, analysis, halves, storage  # noqa: E402
 from clippers_home_court.seasons import (  # noqa: E402
