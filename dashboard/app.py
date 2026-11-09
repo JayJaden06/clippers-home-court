@@ -19,7 +19,7 @@ import streamlit as st
 # only reinstalls requirements when requirements.txt changes, so an installed copy can lag.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from clippers_home_court import LAC, analysis, storage  # noqa: E402
+from clippers_home_court import LAC, analysis, halves, storage  # noqa: E402
 from clippers_home_court.seasons import (  # noqa: E402
     ANALYSIS_FIRST_SEASON,
     INTUIT_DOME,
@@ -40,6 +40,10 @@ PALETTE = {
     "Road": "#9085e9" if DARK else "#4a3aa7",
     "ink": "#c3c2b7" if DARK else "#52514e",
 }
+HALF_SCALE = alt.Scale(
+    domain=["1st half", "2nd half"],
+    range=["#199e70" if DARK else "#1baf7a", "#9085e9" if DARK else "#4a3aa7"],
+)
 ARENA_SCALE = alt.Scale(
     domain=[SHARED_ARENA, INTUIT_DOME], range=[PALETTE[SHARED_ARENA], PALETTE[INTUIT_DOME]]
 )
@@ -77,6 +81,11 @@ def placebo_changes(games: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data
 def visitor_fts(games: pd.DataFrame) -> pd.DataFrame:
     return analysis.visitor_free_throws(games)
+
+
+@st.cache_data(ttl=3600)
+def load_halves() -> pd.DataFrame:
+    return halves.read(storage.data_uri())
 
 
 def ordinal(n: int) -> str:
@@ -382,6 +391,208 @@ with tab_wall:
             "indistinguishable from normal home-court variance. Two full seasons point the "
             "same way."
         )
+
+    # ---- Game by game ----------------------------------------------------------------------------
+    st.divider()
+    st.subheader("Game by game: visitors' free throws at the Clippers' arena")
+    by_game = analysis.opponent_fts_by_game(df)
+    half_rows = load_halves()
+    if not half_rows.empty:
+        h = half_rows.assign(game_date=pd.to_datetime(half_rows["game_date"]))
+        by_game = by_game.merge(
+            h[["game_date", "opp_ftm_h1", "opp_fta_h1", "opp_ftm_h2", "opp_fta_h2"]],
+            on="game_date",
+            how="left",
+        )
+    else:
+        by_game = by_game.assign(opp_ftm_h1=pd.NA, opp_fta_h1=pd.NA, opp_ftm_h2=pd.NA,
+                                 opp_fta_h2=pd.NA)  # fmt: skip
+    seasons_desc = sorted(by_game["season"].unique(), reverse=True)
+    pick = st.selectbox("Season", seasons_desc, index=0, key="ft_game_season")
+    games_s = by_game[by_game["season"] == pick].copy()
+    games_s["label"] = games_s["game_date"].dt.strftime("%b %d") + " " + games_s["opponent"]
+    games_s["result"] = games_s["win"].map({True: "W", False: "L"})
+    worse = int((games_s["diff"] < 0).sum())
+    st.markdown(
+        f"In {pick} at {games_s['arena'].iloc[0]}, visitors shot below their usual FT% in "
+        f"**{worse} of {len(games_s)}** games. Together they made "
+        f"**{games_s['opp_ftm'].sum() / games_s['opp_fta'].sum():.1%}** there, against "
+        f"**{(games_s['season_pct'] * games_s['opp_fta']).sum() / games_s['opp_fta'].sum():.1%}"
+        "** you'd expect from their own season averages."
+    )
+    st.caption(
+        "Each dot is the visitors' FT% that night; the gray tick is their FT% in all their "
+        "other games that season. A line going down from the tick means they shot worse than "
+        "usual. Early in a season the usual FT% rests on only a few games."
+    )
+    order = list(games_s["label"])
+    gx = alt.X("label:N", title=None, sort=order, axis=alt.Axis(labelAngle=-60))
+    gtip = [
+        alt.Tooltip("label:N", title="Game"),
+        alt.Tooltip("result:N", title="Clippers"),
+        alt.Tooltip("opp_ftm:Q", title="Visitor FTM"),
+        alt.Tooltip("opp_fta:Q", title="Visitor FTA"),
+        alt.Tooltip("ft_pct:Q", title="Visitor FT% that night", format=".1%"),
+        alt.Tooltip("season_pct:Q", title="Their usual FT%", format=".1%"),
+        alt.Tooltip("diff:Q", title="vs. usual (pct. points)", format="+.1f"),
+    ]
+    gbase = alt.Chart(games_s).encode(x=gx, tooltip=gtip)
+    stems = gbase.mark_rule(color=PALETTE["ink"], opacity=0.5).encode(
+        y=alt.Y("season_pct:Q", title="Visitors' FT%", axis=alt.Axis(format="%"),
+                scale=alt.Scale(zero=False)),
+        y2="ft_pct:Q",
+    )  # fmt: skip
+    ticks = gbase.mark_tick(color=PALETTE["ink"], thickness=2, size=14).encode(y="season_pct:Q")
+    nights = gbase.mark_circle(size=90, opacity=1, color=PALETTE[INTUIT_DOME]).encode(y="ft_pct:Q")
+    st.altair_chart((stems + ticks + nights).properties(height=320), width="stretch")
+
+    def ft_cell(m, a) -> str:
+        if pd.isna(a):
+            return "–"
+        return f"{int(m)}/{int(a)} ({m / a:.0%})" if a else "0/0"
+
+    table = pd.DataFrame(
+        {
+            "Date": games_s["game_date"].dt.strftime("%Y-%m-%d"),
+            "Opponent": games_s["opponent"],
+            "Clippers": games_s["result"],
+            "Visitor FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm"], games_s["opp_fta"],
+                                                          strict=True)],
+            "Their usual FT%": games_s["season_pct"],
+            "vs. usual (pts)": games_s["diff"],
+            "1st half FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm_h1"],
+                                                           games_s["opp_fta_h1"], strict=True)],
+            "2nd half FT": [ft_cell(m, a) for m, a in zip(games_s["opp_ftm_h2"],
+                                                           games_s["opp_fta_h2"], strict=True)],
+        }
+    ).iloc[::-1]  # fmt: skip
+    st.dataframe(
+        table.style.format({"Their usual FT%": "{:.1%}", "vs. usual (pts)": "{:+.1f}"}),
+        hide_index=True,
+        width="stretch",
+    )
+
+    # ---- 1st half vs. 2nd half -------------------------------------------------------------------
+    st.divider()
+    st.subheader("1st half vs. 2nd half")
+    if half_rows.empty:
+        st.info("No half-by-half data yet. Run `clippers-halves` to fetch it.")
+    else:
+        arenas = analysis.ft_by_half(half_rows, by="arena").set_index("arena")
+        if INTUIT_DOME in arenas.index and SHARED_ARENA in arenas.index:
+            dome_h, old_h = arenas.loc[INTUIT_DOME], arenas.loc[SHARED_ARENA]
+            gap = dome_h["opp_swing"] - old_h["opp_swing"]
+            gap_noise = (dome_h["opp_noise"] ** 2 + old_h["opp_noise"] ** 2) ** 0.5
+            lower = "1st" if dome_h["opp_swing"] > 0 else "2nd"
+            stands_out = abs(gap) > 2 * gap_noise
+            st.markdown(
+                "Teams switch baskets at halftime, so visitors shoot free throws in front of "
+                "The Wall in one half and at the other end in the other. If The Wall works, "
+                "visitors' FT% should split between the halves at Intuit Dome **more than "
+                "it did at Crypto.com Arena**, where neither end had a Wall.\n\n"
+                f"At Intuit Dome visitors shot **{dome_h['opp_pct_h1']:.1%}** in the 1st half "
+                f"and **{dome_h['opp_pct_h2']:.1%}** in the 2nd ({lower} half lower, "
+                f"{abs(dome_h['opp_swing']):.1f} points apart). At Crypto.com Arena it was "
+                f"{old_h['opp_pct_h1']:.1%} and {old_h['opp_pct_h2']:.1%}. "
+                + (
+                    f"**The Intuit Dome split is {gap:+.1f} points bigger than the old "
+                    f"arena's, more than luck alone usually produces (±{2 * gap_noise:.1f}).**"
+                    if stands_out
+                    else f"The difference between the two arenas' splits is {gap:+.1f} "
+                    f"points, **within what luck alone produces** (±{2 * gap_noise:.1f})."
+                )
+            )
+            dome_seasons = analysis.ft_by_half(half_rows, by="season")
+            dome_seasons = dome_seasons[dome_seasons["season"] >= "2024-25"]
+            st.markdown(
+                "Season by season at Intuit Dome: "
+                + "; ".join(
+                    f"{r.season}: {r.opp_pct_h1:.1%} 1st half, {r.opp_pct_h2:.1%} 2nd half "
+                    f"({r.games} games)"
+                    for r in dome_seasons.itertuples()
+                )
+                + ". If the seasons point in opposite directions, the pooled numbers above "
+                "cancel out; that could be luck, or visitors facing The Wall in a different "
+                "half from one season to the next. The box scores don't say which end each "
+                "team shot at."
+            )
+        long_h = pd.concat(
+            [
+                pd.DataFrame(
+                    {
+                        "arena": arenas.index,
+                        "who": who,
+                        "half": half,
+                        "pct": arenas[f"{side}_pct_{part}"].to_numpy(),
+                        "fta": arenas[f"{side}_fta_{part}"].to_numpy(),
+                        "games": arenas["games"].to_numpy(),
+                    }
+                )
+                for side, who in (("opp", "Visitors"), ("lac", "Clippers"))
+                for part, half in (("h1", "1st half"), ("h2", "2nd half"))
+            ]
+        )
+        hcols = st.columns(2)
+        for col, who in zip(hcols, ("Visitors", "Clippers"), strict=True):
+            sub = long_h[long_h["who"] == who]
+            hbars = (
+                alt.Chart(sub)
+                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                .encode(
+                    x=alt.X("arena:N", title=None, sort=[SHARED_ARENA, INTUIT_DOME],
+                            axis=alt.Axis(labelAngle=0)),
+                    xOffset=alt.XOffset("half:N", sort=["1st half", "2nd half"]),
+                    y=alt.Y("pct:Q", title=f"{who}' FT%", axis=alt.Axis(format="%"),
+                            scale=alt.Scale(domain=[0.6, 0.85], clamp=True)),
+                    color=alt.Color("half:N", scale=HALF_SCALE,
+                                    legend=alt.Legend(title=None, orient="top")),
+                    tooltip=[
+                        alt.Tooltip("arena:N", title="Arena"),
+                        alt.Tooltip("half:N", title="Half"),
+                        alt.Tooltip("pct:Q", title="FT%", format=".1%"),
+                        alt.Tooltip("fta:Q", title="FTA", format=","),
+                        alt.Tooltip("games:Q", title="Games"),
+                    ],
+                )
+            )  # fmt: skip
+            hlabels = hbars.mark_text(dy=-8, fontSize=12).encode(
+                text=alt.Text("pct:Q", format=".1%"), color=alt.value(PALETTE["ink"])
+            )
+            with col:
+                st.markdown(f"**{who}** at the Clippers' home arena")
+                st.altair_chart((hbars + hlabels).properties(height=280), width="stretch")
+        st.caption(
+            "The Clippers' own split is a reference: they shoot at the opposite basket from "
+            "the visitors in each half, and things like late-game fouling of poor shooters "
+            "change 2nd-half FT% in every arena. Overtime free throws are left out."
+        )
+        with st.expander("By season"):
+            seasons_h = analysis.ft_by_half(half_rows, by="season")
+            seasons_h["arena"] = seasons_h["season"].map(
+                lambda s: INTUIT_DOME if s >= "2024-25" else SHARED_ARENA
+            )
+            st.dataframe(
+                seasons_h[["season", "arena", "games", "opp_pct_h1", "opp_pct_h2", "opp_swing",
+                           "opp_noise", "lac_pct_h1", "lac_pct_h2"]]
+                .rename(columns={
+                    "season": "Season", "arena": "Arena", "games": "Games",
+                    "opp_pct_h1": "Visitors 1st half", "opp_pct_h2": "Visitors 2nd half",
+                    "opp_swing": "Visitors 2nd − 1st (pts)", "opp_noise": "± luck (1 s.e.)",
+                    "lac_pct_h1": "Clippers 1st half", "lac_pct_h2": "Clippers 2nd half",
+                })
+                .style.format({
+                    "Visitors 1st half": "{:.1%}", "Visitors 2nd half": "{:.1%}",
+                    "Clippers 1st half": "{:.1%}", "Clippers 2nd half": "{:.1%}",
+                    "Visitors 2nd − 1st (pts)": "{:+.1f}", "± luck (1 s.e.)": "{:.1f}",
+                }),
+                hide_index=True,
+                width="stretch",
+            )  # fmt: skip
+            st.markdown(
+                "Half-by-half free throws come from Basketball Reference box scores for every "
+                "Clippers home game since 2018-19. Each game is checked against the full-game "
+                "box score (1st half + 2nd half + overtime must add up) before it's stored."
+            )
 
 # ---- Other new arenas ------------------------------------------------------------------------
 with tab_moves:

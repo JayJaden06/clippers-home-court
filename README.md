@@ -85,9 +85,17 @@ points, so year one looks like noise. An
 [early-season study](https://abovethebreak.substack.com/p/ballmers-wall-is-the-intuit-dome)
 from December 2024 reached a similar conclusion from 12 games.
 
-The sharper test would compare free throws at the Wall end with the other end. The visiting
-team picks which basket it attacks in each half, though, and the public play-by-play data
-doesn't record which end a shot was at, so this measures the whole arena instead.
+**By half.** Teams switch baskets at halftime, so visitors face The Wall for one half only.
+Basketball Reference box scores split every Clippers home game since 2018-19 into halves
+(318 games, each checked against the full-game totals). Pooled over both Intuit Dome seasons,
+visitors shot **76.8%** in the 1st half and **76.9%** in the 2nd, the same split as at
+Crypto.com Arena (77.1% / 77.1%). The seasons point opposite ways, though: in 2024-25
+visitors were 6.0 points worse in the 2nd half, in 2025-26 5.8 points worse in the 1st
+(one standard error of luck is about 3 points). That could be noise, or visitors facing The Wall in a different
+half each season; the box scores don't record which end a team shot at.
+
+The dashboard also lists every Clippers home game with the visitors' FT% that night, by half,
+next to their FT% in their other games that season.
 
 ## How it works
 
@@ -138,6 +146,11 @@ so the job falls back to Basketball Reference when it does; each run's report
 (`data/exports/last_run.json`) records which source it used. A game that ends just before the
 run can appear for one team but not the other. That game is rejected that day and picked up the
 next, so the job allows up to a 2% rejection rate.
+The same job fetches half-by-half free throws for any new Clippers home games.
+
+**Keeping the app awake.** Streamlit Community Cloud puts an app to sleep after 12 hours
+without visitors. [keep-awake.yml](.github/workflows/keep-awake.yml) opens the dashboard in a
+headless browser every morning and evening and clicks the wake-up button if the app is asleep.
 
 **Uncertainty.** Intervals come from resampling the Clippers' games with replacement, separately
 for home and road and within each season. League averages are treated as fixed, since each one
@@ -150,8 +163,9 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dashboard,dev]"
 
 clippers-ingest                 # pull/refresh into ./data
+clippers-halves                 # free throws by half for Clippers home games
 streamlit run dashboard/app.py  # dashboard on http://localhost:8501
-pytest                          # 34 tests
+pytest                          # 40 tests
 ```
 
 A snapshot of the data is committed under `data/` so the dashboard works without running the
@@ -171,7 +185,8 @@ src/clippers_home_court/
   transform.py  validate + pair rows, quarantine failures
   storage.py    read/write Parquet + CSV exports
   job.py        ingest entrypoint (clippers-ingest)
-  analysis.py   home edge, bootstrap, arena moves, free throws by arena
+  halves.py     free throws by half in Clippers home games (clippers-halves)
+  analysis.py   home edge, bootstrap, arena moves, free throws by arena, game and half
 dashboard/app.py  Streamlit + Altair
 tests/            schema, pairing, and metric tests
 ```

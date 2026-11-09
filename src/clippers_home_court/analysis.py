@@ -293,3 +293,45 @@ def visitor_free_throws(df: pd.DataFrame) -> pd.DataFrame:
     out["diff"] = 100 * (out["ftm"] - out["expected"]) / out["fta"]
     out["rank"] = out.groupby("season")["diff"].rank(method="min").astype(int)
     return out
+
+
+def opponent_fts_by_game(df: pd.DataFrame, team: str = LAC) -> pd.DataFrame:
+    """Every `team` home game: the visitor's free throws that night against the visitor's
+    FT% in all its other games that season (`season_pct`). `diff` is in percentage points;
+    negative means the visitor shot worse than usual."""
+    df = df[df["location"] != "neutral"]
+    totals = df.groupby(["season", "team"])[["ftm", "fta"]].sum()
+    games = df[(df["team"] == team) & (df["location"] == "home")]
+    opp = totals.loc[list(zip(games["season"], games["opponent"], strict=True))].to_numpy()
+    out = games[["game_id", "season", "game_date", "opponent", "win", "opp_ftm", "opp_fta"]].copy()
+    out["season_ftm"] = opp[:, 0] - out["opp_ftm"]
+    out["season_fta"] = opp[:, 1] - out["opp_fta"]
+    out["ft_pct"] = out["opp_ftm"] / out["opp_fta"]
+    out["season_pct"] = out["season_ftm"] / out["season_fta"]
+    out["diff"] = 100 * (out["ft_pct"] - out["season_pct"])
+    out["arena"] = out["season"].map(lac_home_arena)
+    return out.sort_values("game_date").reset_index(drop=True)
+
+
+def ft_by_half(halves: pd.DataFrame, by: str = "arena") -> pd.DataFrame:
+    """Pooled FT% by half for visitors and for the Clippers in Clippers home games,
+    grouped by `by` ("arena" or "season"). `swing` is visitors' 2nd-half FT% minus their
+    1st-half FT%, in percentage points; `noise` is one standard error of that swing from
+    luck alone (binomial)."""
+    h = halves.assign(arena=halves["season"].map(lac_home_arena))
+    sums = h.groupby(by).agg(
+        games=("game_date", "size"),
+        **{c: (c, "sum") for c in halves.columns if c.startswith(("opp_ft", "lac_ft"))},
+    )
+    out = pd.DataFrame(index=sums.index)
+    out["games"] = sums["games"]
+    for side in ("opp", "lac"):
+        for part in ("h1", "h2"):
+            out[f"{side}_fta_{part}"] = sums[f"{side}_fta_{part}"]
+            out[f"{side}_pct_{part}"] = sums[f"{side}_ftm_{part}"] / sums[f"{side}_fta_{part}"]
+        p1, p2 = out[f"{side}_pct_h1"], out[f"{side}_pct_h2"]
+        out[f"{side}_swing"] = 100 * (p2 - p1)
+        out[f"{side}_noise"] = 100 * np.sqrt(
+            p1 * (1 - p1) / out[f"{side}_fta_h1"] + p2 * (1 - p2) / out[f"{side}_fta_h2"]
+        )
+    return out.reset_index()

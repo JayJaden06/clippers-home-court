@@ -23,6 +23,7 @@ dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 clippers-ingest = "clippers_home_court.job:main"
+clippers-halves = "clippers_home_court.halves:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clippers_home_court"]

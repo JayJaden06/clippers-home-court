@@ -38,6 +38,12 @@ jobs:
       - name: Ingest current season
         run: clippers-ingest --max-reject-rate 0.02
 
+      # Half-by-half free throws for any new Clippers home games. Never fails the run: a game
+      # whose box score isn't up yet is retried tomorrow.
+      - name: Fetch free throws by half
+        continue-on-error: true
+        run: clippers-halves
+
       - name: Report source
         run: |
           python - <<'EOF'
@@ -51,7 +57,7 @@ jobs:
       - name: Commit new games
         run: |
           git add data
-          if git diff --cached --quiet -- data/team_games; then
+          if git diff --cached --quiet -- data/team_games data/ft_halves.parquet; then
             echo "No new games."
             exit 0
           fi
